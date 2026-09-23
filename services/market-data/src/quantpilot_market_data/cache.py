@@ -6,6 +6,7 @@ import os
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from tempfile import NamedTemporaryFile
 from typing import Any, Literal
 
 import redis.asyncio as redis
@@ -71,7 +72,8 @@ class MarketDataCache:
         if entry is None:
             return None
         if entry.expires_at <= datetime.now(UTC):
-            self._delete_silent(path)
+            # Another process may have replaced this file since we read it.
+            # Treat expiry as a miss; a subsequent write replaces the old entry.
             return None
         return entry
 
@@ -96,16 +98,22 @@ class MarketDataCache:
             "payload": payload,
         }
 
+        temp_path: Path | None = None
         try:
             self.root.mkdir(parents=True, exist_ok=True)
-            temp_path = path.with_suffix(".tmp")
-            temp_path.write_text(
-                json.dumps(record, ensure_ascii=False, indent=2),
-                encoding="utf-8",
-            )
+            # Same filesystem for atomic replace, unique file for each writer.
+            with NamedTemporaryFile(
+                mode="w", encoding="utf-8", dir=self.root,
+                prefix=f".{cache_key}-", suffix=".tmp", delete=False,
+            ) as temp_file:
+                temp_path = Path(temp_file.name)
+                json.dump(record, temp_file, ensure_ascii=False, separators=(",", ":"))
             temp_path.replace(path)
         except OSError:
             return None
+        finally:
+            if temp_path is not None:
+                self._delete_silent(temp_path)
 
         return CacheEntry(
             cache_key=cache_key,
