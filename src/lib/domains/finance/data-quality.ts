@@ -91,11 +91,11 @@ export function assessQuantDataResponse(input: {
         || (symbolMarket && actualMarket !== symbolMarket)) issue('market_mismatch', 'market');
     }
     if (/^\/api\/v1\/quotes\/realtime\/[^/]+$/.test(input.path)) {
-      if (payload.price == null || payload.price === '0' || payload.price === 0) {
+      const price = number(payload.price);
+      if (payload.price == null || price === 0) {
         usable = false;
         issue('quote_price_missing', 'price', 'warning');
       } else {
-        const price = number(payload.price);
         if (price === null || price < 0) issue('quote_price_invalid', 'price');
       }
     }

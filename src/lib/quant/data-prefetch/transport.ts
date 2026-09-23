@@ -1,6 +1,6 @@
 import fs from 'fs/promises';
 import path from 'path';
-import { assessQuantDataResponse } from '@/lib/domains/finance/data-quality';
+import { assessQuantDataResponse, type QuantDataAssessment } from '@/lib/domains/finance/data-quality';
 import { type JsonRecord, asRecord } from './values';
 
 const MARKET_API_BASE_URL = process.env.QUANTPILOT_MARKET_API_URL ?? 'http://127.0.0.1:8000';
@@ -13,7 +13,7 @@ export const SCREENER_FETCH_TIMEOUT_MS =
 export async function fetchJson(
   endpoint: string,
   init: RequestInit = {},
-  options: { timeoutMs?: number } = {}
+  options: { timeoutMs?: number; onQualityWarning?: (assessment: QuantDataAssessment) => void } = {}
 ): Promise<JsonRecord> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), options.timeoutMs ?? FETCH_TIMEOUT_MS);
@@ -42,9 +42,10 @@ export async function fetchJson(
       query: Object.fromEntries(request.searchParams),
       payload: record,
     });
-    if (assessment.status === 'failed') {
+    if (!assessment.usable) {
       throw new Error(`行情响应未通过数据检查：${assessment.issues.map(issue => `${issue.code}@${issue.path}`).join('、')}`);
     }
+    if (assessment.status === 'warning') options.onQualityWarning?.(assessment);
     return record;
   } finally {
     clearTimeout(timeout);

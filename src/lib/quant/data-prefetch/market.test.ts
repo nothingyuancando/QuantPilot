@@ -11,7 +11,7 @@ afterEach(async () => {
   await Promise.all(projects.splice(0).map((project) => fs.rm(project, { recursive: true, force: true })));
 });
 
-describe('backtest experiment artifacts', () => {
+describe('prefetched data integrity and experiment artifacts', () => {
   it('discards an upstream response received after cancellation before writing evidence', async () => {
     const projectPath = await fs.mkdtemp(path.join(os.tmpdir(), 'qp-cancel-quote-'));
     projects.push(projectPath);
@@ -66,6 +66,84 @@ describe('backtest experiment artifacts', () => {
     expect(warnings[0]).toContain('批量行情不可用');
   });
 
+  it.each([
+    { payload: { symbol: '600519', price: 10 }, code: 'symbol_mismatch' },
+    { payload: { symbol: '510300', price: '0.00' }, code: 'quote_price_missing' },
+    { payload: { symbol: '510300', price: -1 }, code: 'quote_price_invalid' },
+    { payload: { symbol: '510300', price: 10, data_quality: { status: 'error' } }, code: 'source_quality_error' },
+  ])('rejects unusable single quotes before publishing any evidence: $code', async ({ payload, code }) => {
+    const projectPath = await fs.mkdtemp(path.join(os.tmpdir(), 'qp-invalid-quote-'));
+    projects.push(projectPath);
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json(payload)));
+    const rawFiles: string[] = [];
+    await expect(fetchSymbolDataset({
+      projectPath, runId: 'invalid', symbol: '510300', rawFiles, warnings: [],
+      plan: { dataRequirements: [] } as unknown as QuantRunPlan,
+    })).rejects.toThrow(code);
+    expect(rawFiles).toEqual([]);
+    expect(await fs.readdir(projectPath)).toEqual([]);
+  });
+
+  it.each([
+    { payload: { symbol: '600519', bars: [{ date: '2026-09-18', close: 10 }] }, code: 'symbol_mismatch' },
+    { payload: { symbol: '510300', adjustment: 'hfq', bars: [{ date: '2026-09-18', close: 10 }] }, code: 'adjustment_mismatch' },
+    { payload: { symbol: '510300', period: 'weekly', bars: [{ date: '2026-09-18', close: 10 }] }, code: 'period_mismatch' },
+    { payload: { symbol: '510300', bars: [{ date: '2026-09-18', close: 10, high: 9, low: 11 }] }, code: 'invalid_ohlc_range' },
+    { payload: { symbol: '510300', bars: [] }, code: 'empty_series' },
+  ])('excludes rejected history from artifacts and metrics, preserving other data: $code', async ({ payload, code }) => {
+    const projectPath = await fs.mkdtemp(path.join(os.tmpdir(), 'qp-invalid-history-'));
+    projects.push(projectPath);
+    const indicators = { symbol: '510300', indicators: { ma20: 10 } };
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => Response.json(
+      url.includes('/quotes/history/') ? payload : indicators,
+    )));
+    const rawFiles: string[] = [];
+    const warnings: string[] = [];
+    const result = await fetchSymbolDataset({
+      projectPath, runId: 'invalid', symbol: '510300', rawFiles, warnings,
+      quote: { symbol: '510300', price: 10, asset_type: 'etf' },
+      plan: { dataRequirements: ['/quotes/history/', '/indicators/technical/'] } as unknown as QuantRunPlan,
+    });
+    expect(result.kline).toMatchObject({ bars: [], data_quality: { status: 'warning' } });
+    expect(result.technicalIndicators).toEqual(indicators);
+    expect(warnings.join(' ')).toContain(code);
+    expect(rawFiles.map((file) => path.basename(file))).toEqual(['quote.json', 'technical-indicators.json']);
+    await expect(fs.access(path.join(projectPath, 'data_file/raw/invalid/510300/kline-daily-qfq.json'))).rejects.toThrow();
+  });
+
+  it.each([
+    '/indicators/technical/', '/backtests/ma-crossover/', '/fundamentals/financials/',
+    '/indicators/fundamental/', '/events/announcements/',
+  ])('validates identity for optional datasets: %s', async (endpoint) => {
+    const projectPath = await fs.mkdtemp(path.join(os.tmpdir(), 'qp-invalid-dataset-'));
+    projects.push(projectPath);
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json({ symbol: '600519' })));
+    const warnings: string[] = [];
+    const rawFiles: string[] = [];
+    await fetchSymbolDataset({
+      projectPath, runId: 'invalid', symbol: '510300', rawFiles, warnings,
+      quote: { symbol: '510300', price: 10, asset_type: 'stock' },
+      plan: { dataRequirements: [endpoint] } as unknown as QuantRunPlan,
+    });
+    expect(warnings.join(' ')).toContain('symbol_mismatch');
+    expect(rawFiles.map((file) => path.basename(file))).toEqual(['quote.json']);
+  });
+
+  it.each([true, false])('keeps usable source warnings visible for batch=%s', async (batch) => {
+    const projectPath = await fs.mkdtemp(path.join(os.tmpdir(), 'qp-warning-quote-'));
+    projects.push(projectPath);
+    const quote = { symbol: '510300', price: 10, data_quality: { status: 'warning' } };
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json(quote)));
+    const warnings: string[] = [];
+    const result = await fetchSymbolDataset({
+      projectPath, runId: 'warning', symbol: '510300', rawFiles: [], warnings,
+      quote: batch ? quote : undefined,
+      plan: { dataRequirements: [] } as unknown as QuantRunPlan,
+    });
+    expect(result.quote).toEqual(quote);
+    expect(warnings.join(' ')).toContain('source_quality_warning');
+  });
+
   it('keeps complete inputs in the raw artifact and only a reference in research context', async () => {
     const projectPath = await fs.mkdtemp(path.join(os.tmpdir(), 'qp-backtest-artifact-'));
     projects.push(projectPath);
@@ -88,6 +166,7 @@ describe('backtest experiment artifacts', () => {
           return new Response(
             JSON.stringify({
               symbol: '510300',
+              price: '3.9',
               asset_type: 'etf',
               fetched_at: '2026-01-02T00:00:00Z',
             })

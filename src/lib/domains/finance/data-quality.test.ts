@@ -30,6 +30,13 @@ describe('observed market data consistency', () => {
     expect(assessQuantDataResponse({ path: '/api/v1/quotes/realtime/600519', payload: { symbol: '600519', price: null } }))
       .toMatchObject({ status: 'warning', usable: false });
   });
+  it.each([0, '0', '0.00', '0e3', '-0.0'])('rejects zero quote prices regardless of representation: %s', (price) => {
+    const result = assessQuantDataResponse({
+      path: '/api/v1/quotes/realtime/600519', payload: { symbol: '600519', price },
+    });
+    expect(result).toMatchObject({ status: 'warning', usable: false });
+    expect(result.issues).toContainEqual({ code: 'quote_price_missing', path: 'price', severity: 'warning' });
+  });
   it.each([
     ['symbol_mismatch', (data: ReturnType<typeof payload>) => { data.symbol = '000001'; }],
     ['adjustment_mismatch', (data: ReturnType<typeof payload>) => { data.adjustment = 'none'; }],

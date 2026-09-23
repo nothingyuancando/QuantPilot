@@ -1,6 +1,6 @@
 import path from 'path';
 import { QuantRunPlan } from '@/lib/domains/finance/workspace';
-import { assessQuantDataResponse } from '@/lib/domains/finance/data-quality';
+import { assessQuantDataResponse, type QuantDataAssessment } from '@/lib/domains/finance/data-quality';
 import { type JsonRecord, asRecord } from './values';
 import {
   inferHistoryLimit,
@@ -148,23 +148,31 @@ export async function fetchSymbolDataset(params: {
   quote?: JsonRecord;
   assertActive?: () => Promise<void>;
 }): Promise<JsonRecord> {
+  const recordQualityWarning = (assessment: QuantDataAssessment) => {
+    const codes = [...new Set(assessment.issues.map((issue) => issue.code))].join('、');
+    params.warnings.push(`${params.symbol} 数据源存在质量或时效提示，请核对原始数据（${codes}）。`);
+  };
   const fetchDatasetJson = async (endpoint: string) => {
     await params.assertActive?.();
-    const response = await fetchJson(endpoint);
+    let warning: QuantDataAssessment | undefined;
+    const response = await fetchJson(endpoint, {}, { onQualityWarning: (assessment) => { warning = assessment; } });
     await params.assertActive?.();
+    if (warning) recordQualityWarning(warning);
     return response;
   };
   await params.assertActive?.();
   const symbolRawDir = path.join(params.projectPath, 'data_file', 'raw', params.runId, params.symbol);
   const historyLimit = inferHistoryLimit(params.plan);
   const quoteEndpoint = `/api/v1/quotes/realtime/${params.symbol}`;
-  const batchQuoteUsable = params.quote && assessQuantDataResponse({
+  const batchAssessment = params.quote && assessQuantDataResponse({
     path: quoteEndpoint,
     payload: params.quote,
-  }).usable;
+  });
+  const batchQuoteUsable = batchAssessment?.usable;
   if (params.quote && !batchQuoteUsable) {
     params.warnings.push(`${params.symbol} 批量行情不可用，已尝试单独获取。`);
   }
+  if (batchQuoteUsable && batchAssessment?.status === 'warning') recordQualityWarning(batchAssessment);
   const quote = batchQuoteUsable ? params.quote! : await fetchDatasetJson(quoteEndpoint);
   const assetType = typeof quote.asset_type === 'string' ? quote.asset_type : 'stock';
   const quotePath = path.join(symbolRawDir, 'quote.json');
