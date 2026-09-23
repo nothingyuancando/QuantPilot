@@ -3,7 +3,9 @@ import {
 } from '@/lib/domains/finance/symbol-aliases';
 import { getProjectLlmConfig } from '@/lib/config/llm';
 
-export const QUANT_QUERY_REWRITE_SCHEMA_VERSION = 4 as const;
+import { resolveResearchTime } from './research-time';
+
+export const QUANT_QUERY_REWRITE_SCHEMA_VERSION = 5 as const;
 
 export type QuantQueryRewriteStatus =
   | 'ready'
@@ -40,6 +42,10 @@ export interface QuantQueryTimeRange {
     | 'reporting_period'
     | 'year'
     | 'date_range';
+  /** Absolute dates are semantic output, never inferred from the label at execution time. */
+  startDate?: string;
+  endDate?: string;
+  asOf?: string;
   source: 'explicit';
 }
 
@@ -110,7 +116,7 @@ export interface QuantQueryRewriteIssue {
 }
 
 export interface QuantQueryRewriteResult {
-  schemaVersion: typeof QUANT_QUERY_REWRITE_SCHEMA_VERSION;
+  schemaVersion: 4 | typeof QUANT_QUERY_REWRITE_SCHEMA_VERSION;
   originalQuery: string;
   normalizedQuery: string;
   rewrittenQuery: string;
@@ -185,6 +191,7 @@ export interface QuantQuerySemanticRewriteInput {
   trigger: QuantQueryRewriteLlmTrigger;
   requestedModel?: string | null;
   projectId?: string;
+  referenceTime?: string;
   signal: AbortSignal;
 }
 
@@ -220,6 +227,7 @@ export interface RewriteQuantQueryOptions {
   maxTargets?: number;
   llmTimeoutMs?: number;
   requestedModel?: string | null;
+  now?: Date;
   semanticRewriter?: QuantQuerySemanticRewriter;
   projectId?: string;
 }
@@ -546,6 +554,7 @@ function literalEvidence(query: string, value: unknown, maxLength: number): stri
 function normalizeLlmTimeRange(
   query: string,
   value: QuantQueryLlmSemantics['timeRange'],
+  now: Date,
 ): QuantQueryTimeRange | null {
   if (!value || !literalEvidence(query, value.evidence, 160)) return null;
   const label = typeof value.label === 'string' ? value.label.normalize('NFKC').trim() : '';
@@ -558,8 +567,12 @@ function normalizeLlmTimeRange(
   ) {
     return null;
   }
+  try { resolveResearchTime(value, now); } catch { return null; }
   return {
     label,
+    ...(value.startDate ? { startDate: value.startDate } : {}),
+    ...(value.endDate ? { endDate: value.endDate } : {}),
+    ...(value.asOf ? { asOf: value.asOf } : {}),
     ...(rawValue === undefined ? {} : { value: rawValue }),
     unit,
     source: 'explicit',
@@ -570,6 +583,7 @@ function mergeLlmSemantics(params: {
   query: string;
   llm: QuantQueryLlmSemantics;
   maxTargets: number;
+  now: Date;
 }): { draft: QuantQuerySemanticDraft; guardedFields: string[] } | null {
   const safeTargets = safeLlmTargetCandidates(
     params.query,
@@ -604,7 +618,7 @@ function mergeLlmSemantics(params: {
   ) {
     return null;
   }
-  const timeRange = normalizeLlmTimeRange(params.query, params.llm.timeRange);
+  const timeRange = normalizeLlmTimeRange(params.query, params.llm.timeRange, params.now);
   if (params.llm.timeRange && !timeRange) return null;
   const broadUniverseEvidence = literalEvidence(
     params.query,
@@ -698,6 +712,7 @@ export async function rewriteQuantQuery(
 ): Promise<QuantQueryRewriteResult> {
   const originalQuery = query;
   const normalizedQuery = normalizeQuantQuery(query);
+  const referenceTime = options.now ?? new Date();
   const maxTargets = Math.min(8, Math.max(1, options.maxTargets ?? 8));
   const neutralFocus: QuantQueryFocus = { id: 'comprehensive', label: FOCUS_LABELS.comprehensive };
   const safety = querySafety(normalizedQuery);
@@ -737,6 +752,7 @@ export async function rewriteQuantQuery(
       originalQuery,
       normalizedQuery,
       trigger: 'primary',
+      referenceTime: referenceTime.toISOString(),
       requestedModel: options.requestedModel,
       projectId: options.projectId,
     },
@@ -770,6 +786,7 @@ export async function rewriteQuantQuery(
       query: normalizedQuery,
       llm: llmResult.outcome.data,
       maxTargets,
+      now: referenceTime,
     });
     llmExecution.provider = llmResult.outcome.provider;
     llmExecution.model = llmResult.outcome.model;

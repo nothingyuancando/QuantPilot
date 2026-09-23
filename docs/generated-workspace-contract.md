@@ -48,7 +48,7 @@ evidence/data_quality.json
 | `.data-agent/profile.json` | 当前 Agent Profile、Domain Pack、Delivery Pack、capability 选择和同一组合锁 |
 | `.data-agent/task.json` | 跨业务通用的目标、实体、指标、维度、筛选、时间范围和输出合同 |
 | `.data-agent/plan.json` | 跨业务通用的执行计划、带版本的 Profile/Domain/Delivery 引用、组合 SHA-256、领域计划引用、预期产物和验证规则 |
-| `.data-agent/finance-query-rewrite.json` | schema v4 LLM 语义、Resolver 标的、安全决策与失败关闭状态 |
+| `.data-agent/finance-query-rewrite.json` | schema v5 LLM 语义、Resolver 标的、安全决策与失败关闭状态 |
 | `.data-agent/finance-run-plan.json` | 消费 Query Rewrite 后形成的任务规划、标准代码、能力域、预期数据和可视化模板 |
 | `.data-agent/attachments.json` | 当前请求的附件清单；`attachments[].path` 必须是严格 `assets/<filename>` 工作空间相对路径，不接受绝对路径、内联 base64 或多层子路径 |
 | `.data-agent/events.jsonl` | 生成链路事件审计 |
@@ -69,7 +69,7 @@ evidence/data_quality.json
 | 层 | 文件 | 作用 |
 | --- | --- | --- |
 | 组合层 | `.data-agent/workspace.json`、`.data-agent/profile.json` | 说明工作空间身份、运行时、Agent、业务包和交付方式 |
-| 语义层 | `.data-agent/task.json`、`finance-query-rewrite.json` | 前者提供通用任务，后者保留金融 schema v4 细节和实体核验结果 |
+| 语义层 | `.data-agent/task.json`、`finance-query-rewrite.json` | 前者提供通用任务，后者保留金融 schema v5 细节和实体核验结果 |
 | 规划层 | `.data-agent/plan.json`、`finance-run-plan.json` | 前者提供通用编排引用，后者说明金融取数和看板计划 |
 | 数据层 | `dashboard-data.json`、`sources.json`、`data_quality.json` | 页面绑定数据和证据来源 |
 | 运行层 | `events.jsonl`、`generation-state.json`、`generation-queue.json` | 记录生成过程、队列和当前状态 |
@@ -168,3 +168,7 @@ npm run check:generated-artifacts
 ```text
 http://localhost:3000/ops-platform
 ```
+
+## 历史研究时点
+
+Finance Run Plan 可包含 `researchTime`：`schemaVersion=1`、`startDate`（可空）、`endDate`、带时区的 `asOf`、`timezone=Asia/Shanghai`。日期由平台从已验证的 Query Rewrite v5 结构化字段冻结，连续任务继承时保留；Agent 不得改写。预取和 typed tools 使用相同截止约束，响应越界或历史财报版本不匹配会被拒绝。范围缺失时不能从自由文本重新猜日期。当前历史行情仍是交易日裁剪，详细可用性限制见 [API 合同](api-reference.md)。

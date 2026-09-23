@@ -235,7 +235,7 @@ cache-miss input tokens 和异常 tool failures；缺少任一证明时 CI 会�
 
 契约模式从 `benchmarks/quantpilot/query-rewrite-fixtures.json` 回放经过版本化的
 Qwen Query Rewrite 语义输出，并使用版本化行情合同服务，再进入与生产一致的
-schema v4 字面证据校验、证券 Resolver、run plan 和数据预取链路。这样 GitHub
+schema v5 字面证据校验、证券 Resolver、run plan 和数据预取链路。这样 GitHub
 Runner 不需要访问开发机上的 ModelPort 或公网行情源，也不会退回关键词匹配。
 fixture 缺失或结构不合法会由
 `check:eval-datasets` 直接阻断；真实模型的语义理解、工具调用和失败关闭仍只由

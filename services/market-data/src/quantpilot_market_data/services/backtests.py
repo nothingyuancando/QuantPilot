@@ -13,6 +13,7 @@ from quantpilot_market_data.services.kline_gateway import (
     get_kline_local_first,
     get_local_kline_if_ready,
 )
+from quantpilot_market_data.services.kline_window import constrain_kline_window, validate_window
 
 
 def _read_cached_backtest(cache: MarketDataCache, cache_key: str) -> BacktestResponse | None:
@@ -40,9 +41,11 @@ async def get_ma_crossover_backtest(
     initial_cash: Decimal,
     fee_bps: Decimal,
     ttl_seconds: int,
+    start: str | None = None,
 ) -> BacktestResponse:
     normalized_fast = max(2, min(fast_window, 120))
     normalized_slow = max(3, min(slow_window, 250))
+    validate_window(period, start, end)
     normalized_limit = max(normalized_slow + 5, min(limit, 1000))
     local = await get_local_kline_if_ready(
         symbol=symbol,
@@ -52,6 +55,7 @@ async def get_ma_crossover_backtest(
         end=end,
     )
     if local is not None:
+        local = constrain_kline_window(local, start=start, end=end)
         return build_ma_crossover_backtest(
             local,
             fast_window=normalized_fast,
@@ -70,6 +74,8 @@ async def get_ma_crossover_backtest(
             "adjustment": adjustment,
             "limit": normalized_limit,
             "end": end,
+            "start": start,
+            "window_version": 1,
             "initial_cash": str(initial_cash),
             "fee_bps": str(fee_bps),
         },
@@ -87,6 +93,7 @@ async def get_ma_crossover_backtest(
         end=end,
         bypass_local=True,
     )
+    kline = constrain_kline_window(kline, start=start, end=end)
     response = build_ma_crossover_backtest(
         kline,
         fast_window=normalized_fast,
@@ -111,7 +118,9 @@ async def get_strategy_backtest(
     initial_cash: Decimal,
     fee_bps: Decimal,
     ttl_seconds: int,
+    start: str | None = None,
 ) -> BacktestResponse:
+    validate_window(period, start, end)
     normalized_limit = max(80, min(limit, 1500))
     local = await get_local_kline_if_ready(
         symbol=symbol,
@@ -121,6 +130,7 @@ async def get_strategy_backtest(
         end=end,
     )
     if local is not None:
+        local = constrain_kline_window(local, start=start, end=end)
         return build_strategy_backtest(
             local,
             strategy_id=strategy_id,
@@ -139,6 +149,8 @@ async def get_strategy_backtest(
             "adjustment": adjustment,
             "limit": normalized_limit,
             "end": end,
+            "start": start,
+            "window_version": 1,
             "initial_cash": str(initial_cash),
             "fee_bps": str(fee_bps),
         },
@@ -156,6 +168,7 @@ async def get_strategy_backtest(
         end=end,
         bypass_local=True,
     )
+    kline = constrain_kline_window(kline, start=start, end=end)
     response = build_strategy_backtest(
         kline,
         strategy_id=strategy_id,

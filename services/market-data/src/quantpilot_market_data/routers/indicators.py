@@ -28,6 +28,7 @@ def create_indicators_router(
         adjustment: Adjustment = "qfq",
         limit: int = 120,
         end: str = "20500101",
+        start: str | None = None,
     ) -> TechnicalIndicatorsResponse:
         try:
             return await get_technical_indicators(
@@ -38,6 +39,7 @@ def create_indicators_router(
                 adjustment=adjustment,
                 limit=limit,
                 end=end,
+                start=start,
                 ttl_seconds=kline_cache_ttl_seconds,
             )
         except ValueError as error:

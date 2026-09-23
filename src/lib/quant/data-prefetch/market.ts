@@ -1,4 +1,5 @@
 import path from 'path';
+import { constrainHistoricalQuery, researchTimeForPlan } from '@/lib/domains/finance/research-time';
 import { QuantRunPlan } from '@/lib/domains/finance/workspace';
 import { assessQuantDataResponse, type QuantDataAssessment } from '@/lib/domains/finance/data-quality';
 import { type JsonRecord, asRecord } from './values';
@@ -25,7 +26,7 @@ export async function fetchScreenerSeedSymbols(params: {
 }): Promise<{ symbols: string[]; screener: JsonRecord | null }> {
   const mode = screenerModeForQuestion(params.plan.question);
   const limit = screenerLimitForQuestion(params.plan.question);
-  const tradeDate = screenerTradeDateForQuestion(params.plan.question);
+  const tradeDate = researchTimeForPlan(params.plan)?.endDate ?? screenerTradeDateForQuestion(params.plan.question);
   const query = new URLSearchParams({
     mode,
     limit: String(limit),
@@ -148,6 +149,7 @@ export async function fetchSymbolDataset(params: {
   quote?: JsonRecord;
   assertActive?: () => Promise<void>;
 }): Promise<JsonRecord> {
+  const researchTime = researchTimeForPlan(params.plan);
   const recordQualityWarning = (assessment: QuantDataAssessment) => {
     const codes = [...new Set(assessment.issues.map((issue) => issue.code))].join('、');
     params.warnings.push(`${params.symbol} 数据源存在质量或时效提示，请核对原始数据（${codes}）。`);
@@ -155,14 +157,29 @@ export async function fetchSymbolDataset(params: {
   const fetchDatasetJson = async (endpoint: string) => {
     await params.assertActive?.();
     let warning: QuantDataAssessment | undefined;
-    const response = await fetchJson(endpoint, {}, { onQualityWarning: (assessment) => { warning = assessment; } });
+    const url = new URL(endpoint, 'http://localhost');
+    const query = Object.fromEntries(url.searchParams.entries());
+    if (researchTime && query.adjustment) query.adjustment = 'none';
+    url.search = new URLSearchParams(Object.entries(constrainHistoricalQuery(url.pathname, query, researchTime))
+      .map(([key, value]) => [key, String(value)])).toString();
+    const response = await fetchJson(url.pathname + url.search, {}, { onQualityWarning: (assessment) => { warning = assessment; } });
     await params.assertActive?.();
     if (warning) recordQualityWarning(warning);
     return response;
   };
   await params.assertActive?.();
   const symbolRawDir = path.join(params.projectPath, 'data_file', 'raw', params.runId, params.symbol);
-  const historyLimit = inferHistoryLimit(params.plan);
+  const historyLimit = researchTime?.startDate
+    ? Math.floor((Date.parse(researchTime.endDate) - Date.parse(researchTime.startDate)) / 86_400_000) + 1
+    : inferHistoryLimit(params.plan);
+  let kline: JsonRecord | null = null;
+  if (researchTime) {
+    kline = await fetchDatasetJson(`/api/v1/quotes/history/${params.symbol}?limit=${historyLimit}`);
+    params.warnings.push('历史行情按完整日线范围读取且不复权；价格修订、证券名称及行业成分尚无完整历史版本，不能视为全链路 Point-in-Time 认证。');
+    const filePath = path.join(symbolRawDir, 'kline-daily-none.json');
+    await writeJson(filePath, kline);
+    params.rawFiles.push(path.relative(params.projectPath, filePath).replaceAll(path.sep, '/'));
+  }
   const quoteEndpoint = `/api/v1/quotes/realtime/${params.symbol}`;
   const batchAssessment = params.quote && assessQuantDataResponse({
     path: quoteEndpoint,
@@ -173,20 +190,25 @@ export async function fetchSymbolDataset(params: {
     params.warnings.push(`${params.symbol} 批量行情不可用，已尝试单独获取。`);
   }
   if (batchQuoteUsable && batchAssessment?.status === 'warning') recordQualityWarning(batchAssessment);
-  const quote = batchQuoteUsable ? params.quote! : await fetchDatasetJson(quoteEndpoint);
+  const lastBar = Array.isArray(kline?.bars) ? asRecord(kline.bars.at(-1)) : null;
+  const quote = researchTime && kline && lastBar ? {
+    ...Object.fromEntries(['symbol', 'name', 'secid', 'market', 'asset_type', 'source', 'currency', 'timezone', 'fetched_at', 'data_quality']
+      .map(key => [key, kline![key]])),
+    price: lastBar.close, as_of: lastBar.date, quote_time: lastBar.date,
+    price_basis: 'historical_unadjusted_daily_close',
+  } : batchQuoteUsable ? params.quote! : await fetchDatasetJson(quoteEndpoint);
   const assetType = typeof quote.asset_type === 'string' ? quote.asset_type : 'stock';
   const quotePath = path.join(symbolRawDir, 'quote.json');
   await writeJson(quotePath, quote);
   params.rawFiles.push(path.relative(params.projectPath, quotePath).replaceAll(path.sep, '/'));
 
-  let kline: JsonRecord | null = null;
   let technicalIndicators: JsonRecord | null = null;
   let backtest: JsonRecord | null = null;
   let financials: JsonRecord | null = null;
   let fundamentalIndicators: JsonRecord | null = null;
   let announcements: JsonRecord | null = null;
 
-  if (params.plan.dataRequirements.some((endpoint) => endpoint.includes('/quotes/history/'))) {
+  if (!kline && params.plan.dataRequirements.some((endpoint) => endpoint.includes('/quotes/history/'))) {
     try {
       kline = await fetchDatasetJson(`/api/v1/quotes/history/${params.symbol}?period=daily&adjustment=qfq&limit=${historyLimit}`);
       const filePath = path.join(symbolRawDir, 'kline-daily-qfq.json');
@@ -219,7 +241,7 @@ export async function fetchSymbolDataset(params: {
   if (params.plan.dataRequirements.some((endpoint) => endpoint.includes('/backtests/ma-crossover/'))) {
     try {
       backtest = await fetchDatasetJson(
-        `/api/v1/backtests/ma-crossover/${params.symbol}?fast_window=20&slow_window=60&period=daily&adjustment=qfq&limit=250&fee_bps=5`
+        `/api/v1/backtests/ma-crossover/${params.symbol}?fast_window=20&slow_window=60&period=daily&adjustment=qfq&limit=${researchTime?.startDate ? historyLimit : 250}&fee_bps=5`
       );
       const experiment = asRecord(backtest.experiment);
       const experimentId = typeof experiment?.experiment_id === 'string'
@@ -293,7 +315,7 @@ export async function fetchSymbolDataset(params: {
     }
   }
 
-  return finalDataFromResponses({
+  return { ...finalDataFromResponses({
     symbol: params.symbol,
     quote,
     kline,
@@ -303,5 +325,5 @@ export async function fetchSymbolDataset(params: {
     fundamentalIndicators,
     announcements,
     requestedTimeRange: params.plan.timeRange,
-  });
+  }), ...(researchTime ? { researchTime, historicalAvailability: 'partial' } : {}) };
 }

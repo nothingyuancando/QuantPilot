@@ -86,9 +86,10 @@ function quote(security) {
   };
 }
 
-function bars(security, limit) {
-  const count = Math.max(80, Math.min(limit || 120, 300));
-  const end = new Date(`${asOf}T00:00:00.000Z`);
+function bars(security, limit, query = new URLSearchParams()) {
+  const count = Math.max(1, Math.min(limit || 120, 1000));
+  const endDay = query.get('end')?.replace(/^(\d{4})(\d{2})(\d{2})$/, '$1-$2-$3') ?? asOf;
+  const end = new Date(`${endDay}T00:00:00.000Z`);
   const rows = [];
   for (let index = 0; index < count; index += 1) {
     const date = new Date(end);
@@ -120,7 +121,8 @@ function bars(security, limit) {
       metadata: {},
     });
   }
-  return rows;
+  const startDay = query.get('start')?.replace(/^(\d{4})(\d{2})(\d{2})$/, '$1-$2-$3');
+  return startDay ? rows.filter(row => row.date >= startDay) : rows;
 }
 
 function average(rows, endIndex, window) {
@@ -129,22 +131,22 @@ function average(rows, endIndex, window) {
   return round(values.reduce((sum, value) => sum + value, 0) / values.length, 4);
 }
 
-function history(security, limit) {
-  const rows = bars(security, limit);
+function history(security, limit, query = new URLSearchParams()) {
+  const rows = bars(security, limit, query);
   return {
     ...identity(security),
     period: 'daily',
-    adjustment: 'qfq',
+    adjustment: query.get('adjustment') ?? 'qfq',
     bars: rows,
-    as_of: asOf,
+    as_of: rows.at(-1)?.date ?? asOf,
     fetched_at: now,
     metadata: { data_basis: 'versioned_contract_snapshot', coverage: { row_count: rows.length } },
     data_quality: dataQuality(),
   };
 }
 
-function technical(security, limit) {
-  const rows = bars(security, limit);
+function technical(security, limit, query = new URLSearchParams()) {
+  const rows = bars(security, limit, query);
   let peak = 0;
   const points = rows.map((row, index) => {
     const close = Number(row.close);
@@ -168,7 +170,7 @@ function technical(security, limit) {
   return {
     ...identity(security),
     period: 'daily',
-    adjustment: 'qfq',
+    adjustment: query.get('adjustment') ?? 'qfq',
     points,
     summary: {
       latest_close: last.close,
@@ -182,7 +184,7 @@ function technical(security, limit) {
       ma30: last.ma30,
       ma60: last.ma60,
     },
-    as_of: asOf,
+    as_of: rows.at(-1)?.date ?? asOf,
     fetched_at: now,
     metadata: { data_basis: 'versioned_contract_snapshot', coverage: { row_count: points.length } },
     data_quality: dataQuality(),
@@ -454,10 +456,14 @@ const server = http.createServer(async (request, response) => {
         return;
       }
       const limit = Number.parseInt(url.searchParams.get('limit') || '120', 10);
+      if (url.searchParams.has('as_of') && ['fundamentals/financials', 'indicators/fundamental'].includes(endpoint)) {
+        json(response, 404, { detail: 'Synthetic fixture has no archived financial vintages at this cutoff.' });
+        return;
+      }
       const handlers = {
         'quotes/realtime': () => quote(security),
-        'quotes/history': () => history(security, limit),
-        'indicators/technical': () => technical(security, limit),
+        'quotes/history': () => history(security, limit, url.searchParams),
+        'indicators/technical': () => technical(security, limit, url.searchParams),
         'fundamentals/financials': () => financials(security),
         'indicators/fundamental': () => fundamentalIndicators(security),
         'events/announcements': () => announcements(security),

@@ -90,6 +90,7 @@ def create_quotes_router(
         adjustment: Adjustment = "qfq",
         limit: int = 120,
         end: str = "20500101",
+        start: str | None = None,
         refresh: bool = False,
     ) -> KlineResponse:
         try:
@@ -102,6 +103,7 @@ def create_quotes_router(
                 adjustment=adjustment,
                 limit=limit,
                 end=end,
+                start=start,
                 refresh=refresh,
                 ttl_seconds=kline_cache_ttl_seconds,
             )

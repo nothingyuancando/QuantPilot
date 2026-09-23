@@ -39,6 +39,49 @@ describe('quant trading-plan intent', () => {
 });
 
 describe('quant data-prefetch symbol candidates', () => {
+  it('uses historical daily closes for every asset and never mixes latest quotes or financials', async () => {
+    const projectPath = await fs.mkdtemp(path.join(os.tmpdir(), 'qp-historical-'));
+    temporaryProjects.push(projectPath);
+    const requests: URL[] = [];
+    const fetcher = vi.fn(async (input: string) => {
+      const url = new URL(input); requests.push(url);
+      const symbol = url.pathname.split('/').at(-1)!;
+      if (url.pathname.includes('/quotes/history/')) return Response.json({
+        symbol, asset_type: 'stock', period: 'daily', adjustment: 'none', source: 'fixture',
+        as_of: '2025-12-31', fetched_at: '2026-01-01T00:00:00Z',
+        bars: [{ date: '2025-12-30', close: 10 }, { date: '2025-12-31', close: 11 }],
+      });
+      if (url.pathname.includes('/fundamentals/financials/')) return Response.json({
+        symbol, as_of: '2026-09-23T00:00:00Z', reports: [{ net_profit: 999 }],
+      }); // A latest-data response must be rejected even with HTTP 200.
+      throw new Error('Unexpected endpoint');
+    });
+    vi.stubGlobal('fetch', fetcher);
+    const result = await prefetchQuantDataForRunPlan({ projectPath, plan: {
+      schemaVersion: 1, runId: 'history', status: 'planned', capabilityId: 'stock_diagnosis',
+      symbols: ['600519', '000001'], question: '历史对比', timeRange: '2025年底',
+      researchTime: { schemaVersion: 1, startDate: '2025-12-01', endDate: '2025-12-31',
+        asOf: '2025-12-31T15:59:59.999Z', timezone: 'Asia/Shanghai' },
+      dataRequirements: ['/api/v1/fundamentals/financials/{symbol}', '/api/v1/events/announcements/{symbol}'],
+      visualization: { required: true, panels: [] },
+    } as unknown as QuantRunPlan });
+    const data = JSON.parse(await fs.readFile(path.join(projectPath, result.finalDataPath!), 'utf8'));
+    expect(requests).toHaveLength(4);
+    for (const url of requests) {
+      if (url.pathname.includes('/quotes/history/')) {
+        expect(Object.fromEntries(url.searchParams)).toMatchObject({ end: '20251231', start: '20251201', adjustment: 'none', period: 'daily', limit: '31' });
+      } else expect(url.searchParams.get('as_of')).toBe('2025-12-31T15:59:59.999Z');
+    }
+    expect(data.assets).toHaveLength(2);
+    for (const asset of data.assets) {
+      expect(asset.quote).toMatchObject({ price: 11, as_of: '2025-12-31', price_basis: 'historical_unadjusted_daily_close' });
+      expect(asset.financials.reports).toEqual([]);
+    }
+    expect(data.warnings.join(' ')).toContain('historical_snapshot_mismatch');
+    expect(data.warnings.join(' ')).toContain('尚未提供历史时点读取');
+    expect(data.historicalAvailability).toBe('partial');
+  });
+
   it('skips legacy plans with a system failure even when symbols and attachments are present', async () => {
     const fetcher = vi.fn();
     vi.stubGlobal('fetch', fetcher);

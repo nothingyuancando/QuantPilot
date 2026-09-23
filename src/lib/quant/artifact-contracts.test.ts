@@ -50,6 +50,22 @@ afterEach(async () => {
 });
 
 describe('PI workspace artifact contract', () => {
+  it.each([
+    [5, { unit: 'date_range', startDate: '2025-07-01', endDate: '2025-12-31' }, 'passed'],
+    [4, { unit: 'trading_day', value: 20 }, 'passed'],
+    [5, { unit: 'date_range', label: '去年' }, 'failed'],
+    [4, { unit: 'date_range', label: '去年' }, 'failed'],
+  ])('validates historical bounds in schema %s', async (schemaVersion, timeRange, status) => {
+    const root = await writeWorkspace('PI Agent', 'pi');
+    await fs.writeFile(path.join(root, '.data-agent/finance-query-rewrite.json'), JSON.stringify({
+      schemaVersion, timeRange, originalQuery: '历史研究', normalizedQuery: '历史研究', rewrittenQuery: '历史研究',
+      status: 'ready', confidence: 1, capabilityHint: 'stock_diagnosis', targetCandidates: [],
+      resolvedSymbols: [], unresolvedTargets: [], ambiguousTargets: [], outputIntent: 'dashboard', broadUniverse: true, issues: [],
+    }));
+    const report = await validateQuantArtifactContracts({ projectPath: root, projectId: 'project-1' });
+    expect(report.checks.find(check => check.id === 'finance_query_rewrite_contract')).toMatchObject({ status });
+  });
+
   it('accepts the canonical PI Agent workspace identity', async () => {
     const root = await writeWorkspace('PI Agent', 'pi');
     const report = await validateQuantArtifactContracts({

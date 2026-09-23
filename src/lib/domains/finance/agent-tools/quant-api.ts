@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import type { PiAgentTool } from '@/lib/agent/types';
 import type { DataAgentSourceReceipt } from '@/lib/data-agent/contracts';
 import { assessQuantDataResponse } from '../data-quality';
+import { constrainHistoricalQuery, QuantResearchTimeError, type QuantResearchTime } from '../research-time';
 import { compactQuantOutput } from './quant-api-output';
 import { PiAgentToolError, throwIfAborted } from '@/lib/agent/tools/errors';
 import { inputRecord, requiredString } from '@/lib/agent/tools/input';
@@ -37,6 +38,7 @@ export interface QuantApiGetInput {
 }
 
 export interface PiAgentQuantApiToolOptions {
+  researchTime?: QuantResearchTime | null;
   timeoutMs?: number;
   maxOutputChars?: number;
   maxResponseBytes?: number;
@@ -168,7 +170,7 @@ export function createQuantApiGetTool(options: PiAgentQuantApiToolOptions = {}):
   let requestCount = 0;
   return {
     name: 'quant_api_get',
-    description: 'GET market and quant data from the fixed local http://127.0.0.1:8000/api/v1/ service. Inconsistent or incomplete responses fail; narrow the query when requested. Quality warnings and display-window omissions must be preserved in analysis.',
+    description: 'GET market and quant data from the fixed local http://127.0.0.1:8000/api/v1/ service. Inconsistent or incomplete responses fail; narrow the query when requested. Quality warnings and display-window omissions must be preserved in analysis. Historical runs enforce the saved cutoff and unadjusted daily bars; unsupported endpoints or conflicting parameters fail.',
     effect: 'read',
     idempotency: 'intrinsic',
     inputSchema: {
@@ -200,7 +202,13 @@ export function createQuantApiGetTool(options: PiAgentQuantApiToolOptions = {}):
           `This PI Agent run exceeded its ${maxRequests}-request quant API budget.`,
         );
       }
-      const url = buildQuantApiUrl(input.path, input.query);
+      let query;
+      try { query = constrainHistoricalQuery(input.path, input.query, options.researchTime ?? null); }
+      catch (error) {
+        if (error instanceof QuantResearchTimeError) throw new PiAgentToolError(error.code, error.message);
+        throw error;
+      }
+      const url = buildQuantApiUrl(input.path, query);
       const response = await fetchImpl(url, {
         method: 'GET',
         headers: { accept: 'application/json' },
@@ -248,7 +256,7 @@ export function createQuantApiGetTool(options: PiAgentQuantApiToolOptions = {}):
           error: { code: 'QUANT_API_INVALID_JSON', message: 'The local API did not return valid JSON.' },
         };
       }
-      const assessment = assessQuantDataResponse({ path: url.pathname, query: input.query, payload });
+      const assessment = assessQuantDataResponse({ path: url.pathname, query, payload });
       if (assessment.status === 'failed') {
         return {
           ok: false,

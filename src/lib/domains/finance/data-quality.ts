@@ -1,3 +1,5 @@
+import { assessTemporalData } from './temporal-data-quality';
+
 type JsonRecord = Record<string, unknown>;
 
 export interface QuantDataIssue {
@@ -66,6 +68,7 @@ export function assessQuantDataResponse(input: {
   const payload = record(input.payload);
   if (!payload) issue('response_not_object', '$');
   else {
+    for (const result of assessTemporalData({ ...input, payload })) issue(result.code, result.path, result.severity);
     if (payload.ok === false || payload.success === false || payload.error != null) issue('api_error_payload', '$');
     const quality = record(payload.data_quality);
     if (payload.data_quality !== undefined && (!quality || !['ok', 'warning', 'error'].includes(String(quality.status)))) {

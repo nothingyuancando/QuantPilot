@@ -91,7 +91,7 @@
 | 路由 | 方法 | 调用方 | 责任 |
 | --- | --- | --- | --- |
 | `/api/quant/strategies` | `GET/POST` | 策略平台 | 策略平台聚合数据、扫描、补数和因子目录 |
-| `/api/quant/query/rewrite` | `POST` | 聊天页、运行规划器 | schema v4 LLM-first 问题改写；所有 purpose 均由所选 LLM 解析语义，并在取数前执行安全决策 |
+| `/api/quant/query/rewrite` | `POST` | 聊天页、运行规划器 | schema v5 LLM-first 问题改写；所有 purpose 均由所选 LLM 解析语义，并在取数前执行安全决策 |
 | `/api/quant/capabilities` | `GET` | 业务知识中心 | 业务能力和执行依赖摘要 |
 | `/api/quant/capability-center` | `GET` | 业务知识中心 | 业务能力、场景知识、交付契约和支撑资源 |
 | `/api/research/reports` | `GET/POST` | 投研情报中心 | 观察池、证据型日报、主题洞察、运行历史和推送记录；`POST` 支持 `run-daily-report` 和 `send-latest-report` |
@@ -248,6 +248,10 @@ fundamental 复用 financials；单个上游故障不会丢弃其他成功区块
 | `/api/v1/indicators/fundamental/{symbol}` | `GET` | 财务衍生指标 |
 | `/api/v1/events/announcements/{symbol}` | `GET` | 公告事件 |
 | `/api/v1/events/dividends/{symbol}` | `GET` | 分红除权事件 |
+
+历史研究由 Query Rewrite v5 的 `timeRange.startDate/endDate/asOf` 固化为 Run Plan 的 `researchTime`。`date_range` 必须有结束日期；默认知识截止为上海当日末尾，盘中截止保守排除当日日线。日期顺序、时区、未来截止和超过 1,000 自然日的范围会被拒绝。日线、技术指标与两类回测 GET 支持可选 `start=YYYYMMDD`（仅 daily）及已有 `end`；服务在计算指标和冻结回测实验前裁剪范围，缓存键包含起点。历史预取和 `quant_api_get` 强制 `period=daily&adjustment=none`，避免使用当前复权因子；单日价格锚点取范围内最后一个历史收盘。公告等未支持历史读取的接口明确不可用。财报历史缺失保留缺口，不改取最新数据。
+
+这些约束只覆盖交易日期和财报版本读取；行情修订、名称和行业/证券池历史仍未完整版本化。输出保留 `historicalAvailability=partial` 和质量提示，不能声明全链路 PIT。当前诊断的相对时间范围继续沿用现有行为；旧 `date_range` 缺少结构化日期时必须重新规划。
 
 财报和基本面指标 GET 均支持带时区的 `as_of`，例如 `2026-09-06T00:00:00Z`。参数省略时仍查询最新数据，并明确返回 `knowledge.point_in_time=false`；传入后只读不可变版本表，返回 `knowledge.cutoff`、`data_version` 与逐条 `vintages`。无时区或未来时点返回 400，数据库不可用或内容校验失败返回 503，无历史样本返回空结果与质量提示。采集接口使用现有 `X-QuantPilot-Admin-Token` 鉴权，返回插入、重复、缺报告期和缺公告时间的计数。
 

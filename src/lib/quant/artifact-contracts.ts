@@ -1,3 +1,4 @@
+import { resolveResearchTime } from '@/lib/domains/finance/research-time';
 import fs from 'fs/promises';
 import path from 'path';
 import { z } from 'zod';
@@ -131,14 +132,14 @@ const taskSchema = z.object({
   filters: z.array(z.unknown()),
   output: z.enum(['answer', 'table', 'chart', 'dashboard', 'report', 'dataset']),
   domainHints: z.array(nonEmptyString),
-  status: z.enum(['ready', 'partial', 'needs_clarification', 'refused']),
+  status: z.enum(['ready', 'partial', 'needs_clarification', 'failed', 'refused']),
   issues: z.array(z.unknown()),
 }).passthrough();
 
 const dataAgentPlanSchema = z.object({
   schemaVersion: z.literal(1),
   runId: nonEmptyString,
-  status: z.enum(['planned', 'needs_clarification', 'refused']),
+  status: z.enum(['planned', 'needs_clarification', 'failed', 'refused']),
   profile: z.object({
     id: nonEmptyString,
     version: nonEmptyString,
@@ -161,12 +162,21 @@ const dataAgentPlanSchema = z.object({
   updatedAt: nonEmptyString,
 });
 
+const researchRangeSchema = z.object({
+  unit: nonEmptyString,
+  startDate: z.string().optional(), endDate: z.string().optional(), asOf: z.string().optional(),
+}).passthrough().superRefine((range, context) => {
+  try { resolveResearchTime(range); }
+  catch { context.addIssue({ code: 'custom', message: 'Historical research requires valid structured dates and a non-future cutoff.' }); }
+});
+
 const financeQueryRewriteSchema = z.object({
-  schemaVersion: z.literal(4),
+  schemaVersion: z.union([z.literal(4), z.literal(5)]),
+  timeRange: researchRangeSchema.nullable().optional(),
   originalQuery: nonEmptyString,
   normalizedQuery: nonEmptyString,
   rewrittenQuery: nonEmptyString,
-  status: z.enum(['ready', 'partial', 'needs_clarification', 'refused']),
+  status: z.enum(['ready', 'partial', 'needs_clarification', 'failed', 'refused']),
   confidence: z.number().min(0).max(1),
   capabilityHint: nonEmptyString,
   targetCandidates: z.array(z.string()),
@@ -181,7 +191,7 @@ const financeQueryRewriteSchema = z.object({
 const runPlanSchema = z.object({
   schemaVersion: z.literal(1),
   runId: nonEmptyString,
-  status: z.enum(['pending', 'planned', 'needs_clarification', 'refused']),
+  status: z.enum(['pending', 'planned', 'needs_clarification', 'failed', 'refused']),
   capabilityId: nonEmptyString,
   composition: compositionLockSchema,
   question: nonEmptyString,

@@ -89,6 +89,7 @@
         "timeRange": {
           "label": "6月3日",
           "unit": "date_range",
+          "endDate": "2026-06-03",
           "evidence": "6月3日"
         },
         "analysisFocusId": "comparison",

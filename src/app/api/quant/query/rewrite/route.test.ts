@@ -73,7 +73,7 @@ beforeEach(() => {
 describe('POST /api/quant/query/rewrite', () => {
   it('returns a versioned executable rewrite contract', async () => {
     mocks.rewriteQuantQuery.mockResolvedValueOnce({
-      schemaVersion: 4,
+      schemaVersion: 5,
       status: 'ready',
       targetCandidates: ['北方稀土'],
       resolvedSymbols: [{ symbol: '600111', market: 'SH' }],
@@ -102,13 +102,13 @@ describe('POST /api/quant/query/rewrite', () => {
     expect(payload).toMatchObject({
       success: true,
       data: {
-        schemaVersion: 4,
+        schemaVersion: 5,
         status: 'ready',
         targetCandidates: ['北方稀土'],
         resolvedSymbols: [{ symbol: '600111', market: 'SH' }],
       },
       meta: {
-        schemaVersion: 4,
+        schemaVersion: 5,
         purpose: 'execution',
         strategy: 'llm_primary',
         llmStatus: 'applied',
@@ -222,7 +222,7 @@ describe('POST /api/quant/query/rewrite', () => {
     expect(payload).toMatchObject({
       success: true,
       data: {
-        schemaVersion: 4,
+        schemaVersion: 5,
         status: 'refused',
         safety: {
           decision: 'refuse',
@@ -244,7 +244,7 @@ describe('POST /api/quant/query/rewrite', () => {
       responseStatus: 200,
       responseBody: {
         success: true,
-        data: { schemaVersion: 4, status: 'ready' },
+        data: { schemaVersion: 5, status: 'ready' },
         meta: { requestId: 'rewrite-1' },
       },
       responseAvailable: true,
@@ -331,7 +331,7 @@ describe('POST /api/quant/query/rewrite', () => {
   it('persists token usage and marks accounting only after both usage writes succeed', async () => {
     mocks.requireAction.mockResolvedValue({ session: { user: { id: 'member-1' } } });
     mocks.rewriteQuantQuery.mockResolvedValueOnce({
-      schemaVersion: 4,
+      schemaVersion: 5,
       status: 'ready',
       execution: {
         strategy: 'llm_primary',

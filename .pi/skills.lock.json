@@ -45,10 +45,10 @@
       "fileCount": 4
     },
     "run-planner": {
-      "version": "1.0.0",
+      "version": "1.1.0",
       "packagePath": ".pi/skill-packages/run-planner.tgz",
-      "sourceSha256": "e4b8623ed7b7f2091a1099002745881bf1b81ecfcbb519db2ab559df27cde676",
-      "packageSha256": "a4a9c5b6d976dd3f94c80f17276e3d0cb75a5aaf0a059194bc381ffa0217a293",
+      "sourceSha256": "46bad9c13441af315532b93fba742efa7f528d7615e4b411dabb7d1eee1f78d8",
+      "packageSha256": "9f57c7cffb4d66d4bad7e922222c1dfb3d5b9db15f5919f48257f53d7cfcdedb",
       "fileCount": 4
     },
     "image-extraction": {
@@ -80,10 +80,10 @@
       "fileCount": 5
     },
     "query-rewrite": {
-      "version": "0.6.0",
+      "version": "0.7.0",
       "packagePath": ".pi/skill-packages/query-rewrite.tgz",
-      "sourceSha256": "00c9e2c18ccc135e935bcbc034128a39f80be5f6ea9eddca4070554209af6b5d",
-      "packageSha256": "6014e4921aa0175884f32b40042e42c8e4e4f239a8262e3266369c2c019e7b5e",
+      "sourceSha256": "6b00bd27d5fde2bea8a0e0a1c5d54a441d4371feae14b63c3ff29bb409a5f1e7",
+      "packageSha256": "49b3c62c85a4704701e8e4af771583930ffa6d7aaafb4e9b53bce6dc4deb23e8",
       "fileCount": 4
     }
   }

@@ -8,11 +8,12 @@ import json
 import re
 import sys
 from pathlib import Path
+from datetime import datetime, date, time, timedelta, timezone
 from typing import Any
 
 
 SYMBOL_PATTERN = re.compile(r"^(?:6|0|3|5)\d{5}$")
-VALID_STATUSES = {"ready", "partial", "needs_clarification", "refused"}
+VALID_STATUSES = {"ready", "partial", "needs_clarification", "failed", "refused"}
 VALID_OUTPUT_INTENTS = {"dashboard", "answer"}
 VALID_STRATEGIES = {"llm_primary", "llm_unavailable", "safety_refusal"}
 VALID_LLM_STATUSES = {
@@ -40,15 +41,15 @@ def validate(payload: Any) -> dict[str, Any]:
     if not isinstance(payload, dict):
         return {"valid": False, "errors": ["root must be an object"], "warnings": []}
 
-    if payload.get("schemaVersion") != 4:
-        errors.append("schemaVersion must equal 4")
+    if payload.get("schemaVersion") not in {4, 5}:
+        errors.append("schemaVersion must equal 5 (or a stored v4 contract)")
     for field in ("originalQuery", "normalizedQuery", "rewrittenQuery", "capabilityHint"):
         if not isinstance(payload.get(field), str) or not payload[field].strip():
             errors.append(f"{field} must be a non-empty string")
 
     status = payload.get("status")
     if status not in VALID_STATUSES:
-        errors.append("status must be ready, partial, needs_clarification, or refused")
+        errors.append("status must be ready, partial, needs_clarification, failed, or refused")
     confidence = payload.get("confidence")
     if not isinstance(confidence, (int, float)) or isinstance(confidence, bool) or not 0 <= confidence <= 1:
         errors.append("confidence must be a number between 0 and 1")
@@ -119,13 +120,13 @@ def validate(payload: Any) -> dict[str, Any]:
             errors.append("llm_primary requires an attempted, applied LLM result")
         if strategy == "llm_unavailable" and not (
             isinstance(llm, dict)
-            and llm.get("attempted") is True
+            and llm.get("attempted") is (llm.get("status") != "skipped_unconfigured")
             and llm.get("applied") is False
             and llm.get("status") in {
                 "skipped_unconfigured", "invalid_output", "timed_out", "failed"
             }
         ):
-            errors.append("llm_unavailable requires an attempted, unapplied failed LLM result")
+            errors.append("llm_unavailable requires an unapplied failed LLM result; unconfigured models are not attempted")
         if strategy == "safety_refusal" and not (
             isinstance(llm, dict)
             and llm.get("attempted") is False
@@ -187,6 +188,35 @@ def validate(payload: Any) -> dict[str, Any]:
 
     if strategy == "llm_unavailable" and status in {"ready", "partial"}:
         errors.append("unavailable LLM cannot produce an executable rewrite")
+    time_range = payload.get("timeRange")
+    if time_range is not None:
+        if not isinstance(time_range, dict):
+            errors.append("timeRange must be an object or null")
+        elif time_range.get("unit") == "date_range" or any(time_range.get(key) for key in ("startDate", "endDate", "asOf")):
+            try:
+                raw_end = time_range.get("endDate")
+                if not isinstance(raw_end, str) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", raw_end):
+                    raise ValueError("endDate is required")
+                end = date.fromisoformat(raw_end)
+                raw_start = time_range.get("startDate")
+                start = date.fromisoformat(raw_start) if raw_start else None
+                if raw_start and (not isinstance(raw_start, str) or start.isoformat() != raw_start):
+                    raise ValueError("startDate must use YYYY-MM-DD")
+                shanghai = timezone(timedelta(hours=8))
+                raw_cutoff = time_range.get("asOf")
+                cutoff = datetime.fromisoformat(raw_cutoff.replace("Z", "+00:00")) if raw_cutoff else datetime.combine(end, time(23, 59, 59, 999000), shanghai)
+                if cutoff.tzinfo is None or cutoff > datetime.now(timezone.utc):
+                    raise ValueError("asOf must have a timezone and must not be in the future")
+                local = cutoff.astimezone(shanghai)
+                if end > local.date():
+                    raise ValueError("endDate is after asOf")
+                complete = local.date() if local.time() == time(23, 59, 59, 999000) else local.date() - timedelta(days=1)
+                end = min(end, complete)
+                if start and (start > end or (end - start).days >= 1000):
+                    raise ValueError("historical daily window must contain full days and span at most 1000 days")
+            except (ValueError, TypeError, AttributeError) as error:
+                errors.append(f"invalid historical timeRange: {error}")
+
     if not isinstance(payload.get("broadUniverse"), bool):
         errors.append("broadUniverse must be a boolean")
 

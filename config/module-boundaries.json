@@ -303,6 +303,7 @@
         "@/lib/domains/finance/index",
         "@/lib/domains/finance/intent",
         "@/lib/domains/finance/query-rewrite",
+        "@/lib/domains/finance/research-time",
         "@/lib/domains/finance/visualization-templates",
         "@/lib/domains/finance/workspace",
         "@/lib/domains/finance/workspace-artifacts",

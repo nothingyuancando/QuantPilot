@@ -10,7 +10,7 @@
     {
       "id": "run-planner",
       "name": "运行规划",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "status": "stable",
       "scope": "workflow",
       "boundary": "解释平台生成的通用任务、领域计划和澄清门禁，指导后续执行；不生成或改写平台控制产物。",
@@ -46,7 +46,7 @@
     {
       "id": "query-rewrite",
       "name": "问题改写",
-      "version": "0.6.0",
+      "version": "0.7.0",
       "status": "stable",
       "scope": "workflow",
       "boundary": "作为规划前唯一语义事实源，由所选 LLM 通过严格 Schema 解析全部自然语言语义，再经原文字面证据、独立标的 Resolver 与确定性安全策略核验；模型不可用时失败关闭。",

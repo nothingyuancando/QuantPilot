@@ -26,6 +26,7 @@ from quantpilot_market_data.services.kline_gateway import (
     get_kline_local_first,
     get_local_kline_if_ready,
 )
+from quantpilot_market_data.services.kline_window import constrain_kline_window, validate_window
 
 CN_TZ = ZoneInfo("Asia/Shanghai")
 INTRADAY_CACHE_EXPIRE_HOUR = 9
@@ -103,7 +104,9 @@ async def get_history_quote(
     end: str,
     refresh: bool,
     ttl_seconds: int,
+    start: str | None = None,
 ) -> KlineResponse:
+    validate_window(period, start, end)
     normalized_limit = max(1, min(limit, 1000))
     if is_intraday_period(period):
         return await get_intraday_history_quote(
@@ -125,7 +128,7 @@ async def get_history_quote(
             end=end,
         )
         if local is not None:
-            return local
+            return constrain_kline_window(local, start=start, end=end)
 
     cache_key = cache.build_key(
         "quote-history",
@@ -135,12 +138,14 @@ async def get_history_quote(
             "adjustment": adjustment,
             "limit": normalized_limit,
             "end": end,
+            "start": start,
+            "window_version": 1,
         },
     )
     if not refresh:
         cached = read_cached_response(cache, cache_key, KlineResponse)
         if cached is not None:
-            return cached
+            return constrain_kline_window(cached, start=start, end=end)
 
     response = await get_kline_local_first(
         client,
@@ -151,6 +156,7 @@ async def get_history_quote(
         end=end,
         bypass_local=True,
     )
+    response = constrain_kline_window(response, start=start, end=end)
     return cache_response(cache, cache_key, ttl_seconds, response, KlineResponse)
 
 

@@ -71,6 +71,22 @@ async function buildRewrite(params: {
 }
 
 describe('writeInitialRunPlan', () => {
+  it('freezes historical dates and preserves them for a presentation-only follow-up', async () => {
+    const projectPath = await createProject();
+    const query = '分析贵州茅台2025年下半年';
+    const queryRewrite = await buildRewrite({ query, targets: ['贵州茅台'], symbolByTarget: { 贵州茅台: '600519' },
+      timeRange: { label: '2025年下半年', unit: 'date_range', evidence: '2025年下半年', startDate: '2025-07-01', endDate: '2025-12-31' } });
+    const previousPlan = await writeInitialRunPlan({ projectPath, instruction: query, requestId: 'historical', queryRewrite });
+    expect(previousPlan.researchTime).toMatchObject({ startDate: '2025-07-01', endDate: '2025-12-31', asOf: '2025-12-31T15:59:59.999Z' });
+    const instruction = '将图表改成深色风格';
+    const plan = await writeInitialRunPlan({ projectPath, instruction, requestId: 'follow-up', previousPlan,
+      queryRewrite: await buildRewrite({ query: instruction }) });
+    expect(plan.symbols).toEqual(previousPlan.symbols);
+    expect(plan.researchTime).toEqual(previousPlan.researchTime);
+    const stored = JSON.parse(await fs.readFile(path.join(projectPath, '.data-agent/finance-run-plan.json'), 'utf8'));
+    expect(stored.researchTime).toEqual(previousPlan.researchTime);
+  });
+
   it.each([false, true])('persists a failed plan and task despite image attachments=%s', async hasImageAttachments => {
     const projectPath = await createProject();
     const instruction = '分析贵州茅台';
@@ -131,7 +147,7 @@ describe('writeInitialRunPlan', () => {
       timeRange: '最近 120 个交易日',
       visualization: { required: true, templateId: 'single-stock-diagnosis' },
       queryRewrite: {
-        schemaVersion: 4,
+        schemaVersion: 5,
         execution: { strategy: 'llm_primary' },
       },
     });

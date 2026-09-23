@@ -104,7 +104,7 @@ Worker/inline: registry -> domain handler -> PI Agent adapter -> Delivery valida
   profile.json       # Agent Profile 与当前 capability
   task.json          # 通用 DataAgentTask
   plan.json          # 通用 DataAgentExecutionPlan
-  finance-query-rewrite.json # 金融 schema v4 领域合同
+  finance-query-rewrite.json # 金融 schema v5 领域合同
   finance-run-plan.json      # 金融取数和可视化计划
   validation.json    # 当前金融 Delivery Pack 验证报告
 data_file/final/

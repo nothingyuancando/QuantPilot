@@ -32,6 +32,7 @@ def create_backtest_router(
         adjustment: Adjustment = "qfq",
         limit: int = 250,
         end: str = "20500101",
+        start: str | None = None,
         initial_cash: Decimal = Decimal("1"),
         fee_bps: Decimal = Decimal("5"),
     ) -> BacktestResponse:
@@ -46,6 +47,7 @@ def create_backtest_router(
                 adjustment=adjustment,
                 limit=limit,
                 end=end,
+                start=start,
                 initial_cash=initial_cash,
                 fee_bps=fee_bps,
                 ttl_seconds=kline_cache_ttl_seconds,
@@ -64,6 +66,7 @@ def create_backtest_router(
         adjustment: Adjustment = "qfq",
         limit: int = 1000,
         end: str = "20500101",
+        start: str | None = None,
         initial_cash: Decimal = Decimal("1"),
         fee_bps: Decimal = Decimal("5"),
     ) -> BacktestResponse:
@@ -78,6 +81,7 @@ def create_backtest_router(
                 adjustment=adjustment,
                 limit=limit,
                 end=end,
+                start=start,
                 initial_cash=initial_cash,
                 fee_bps=fee_bps,
                 ttl_seconds=kline_cache_ttl_seconds,
@@ -96,6 +100,7 @@ def strategy_backtest_parameters(request: Request) -> dict[str, str]:
         "adjustment",
         "limit",
         "end",
+        "start",
         "initial_cash",
         "fee_bps",
     }

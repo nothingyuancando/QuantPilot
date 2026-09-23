@@ -17,11 +17,13 @@ Consume `.data-agent/finance-query-rewrite.json` as the only semantic bridge bet
    - `llm_unavailable` is a hard semantic gate. Stop before planning or data retrieval and surface the retry guidance in `issues[]`.
    - `safety_refusal` stops the request before model, Resolver, data, Agent, or dashboard execution.
 3. For `llm_primary`, use `resolvedSymbols[]` as the ordered target list and carry `symbol`, `market`, `assetType`, and `secid` into data requests.
-4. Use `timeRange`, `analysisFocus`, `capabilityHint`, `outputIntent`, and `broadUniverse` as authoritative semantics. Do not reparse the original query with keywords or regular expressions.
+4. For schema v5 historical ranges, consume `timeRange.startDate/endDate/asOf` and the frozen run-plan `researchTime`. Never infer dates from labels or replace missing history with latest data. Intraday cutoffs exclude that partial day’s daily bar. Historical price revisions and universe membership remain partial coverage; do not claim complete PIT certification.
+   Use `timeRange`, `analysisFocus`, `capabilityHint`, `outputIntent`, and `broadUniverse` as authoritative semantics. Do not reparse the original query with keywords or regular expressions.
 5. Respect the top-level status gate:
    - `ready`: continue to `run-planner` and required data skills.
    - `partial`: continue only when omitting unresolved targets cannot change comparison or portfolio semantics; otherwise clarify.
    - `needs_clarification`: surface the issue or clarification question and stop before data retrieval.
+   - `failed`: stop; show the infrastructure/model issue and retry guidance.
    - `refused`: return `safety.message` and stop.
 6. Keep `originalQuery` for user-visible wording. `rewrittenQuery` is an execution summary, never a verbatim quote.
 7. Preserve issue codes exactly: `QUERY_REWRITE_LLM_UNAVAILABLE`, `TARGET_NOT_FOUND`, `TARGET_AMBIGUOUS`, `SYMBOL_RESOLVER_UNAVAILABLE`, and `GUARANTEED_RETURN_REQUEST` have different remediation paths.

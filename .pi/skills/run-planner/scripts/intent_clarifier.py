@@ -15,13 +15,13 @@ def validate(payload: Any) -> dict[str, Any]:
     plan, rewrite = payload.get("runPlan"), payload.get("queryRewrite")
     if not isinstance(plan, dict) or not isinstance(rewrite, dict):
         return {"valid": False, "executable": False, "errors": ["runPlan and queryRewrite must be objects"]}
-    if plan.get("schemaVersion") != 1 or rewrite.get("schemaVersion") != 4:
-        errors.append("expected runPlan schemaVersion=1 and queryRewrite schemaVersion=4")
+    if plan.get("schemaVersion") != 1 or rewrite.get("schemaVersion") not in {4, 5}:
+        errors.append("expected runPlan schemaVersion=1 and queryRewrite schemaVersion=4/5")
     for field in ("runId", "capabilityId", "question"):
         if not isinstance(plan.get(field), str) or not plan[field].strip():
             errors.append(f"runPlan.{field} must be a non-empty string")
     status = plan.get("status")
-    if status not in {"pending", "planned", "needs_clarification", "refused"}:
+    if status not in {"pending", "planned", "needs_clarification", "failed", "refused"}:
         errors.append("invalid runPlan.status")
     for field in ("symbols", "dataRequirements", "analysisSteps", "expectedArtifacts", "validationRules"):
         value = plan.get(field)
@@ -37,7 +37,7 @@ def validate(payload: Any) -> dict[str, Any]:
             errors.append("duplicate runPlan symbols")
         if set(symbols) != {item["symbol"] for item in resolved}:
             errors.append("runPlan symbols differ from queryRewrite")
-    if rewrite.get("status") not in {"ready", "partial", "needs_clarification", "refused"}:
+    if rewrite.get("status") not in {"ready", "partial", "needs_clarification", "failed", "refused"}:
         errors.append("invalid queryRewrite.status")
     if status == "planned":
         if rewrite.get("status") not in {"ready", "partial"}:

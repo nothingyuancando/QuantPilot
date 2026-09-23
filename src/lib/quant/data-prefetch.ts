@@ -1,4 +1,5 @@
 import path from 'path';
+import { researchTimeForPlan } from '@/lib/domains/finance/research-time';
 import { ensureBaselineEvidenceFiles } from '@/lib/quant/evidence';
 import { appendQuantWorkspaceEvent, ensureQuantWorkspace, QuantRunPlan } from '@/lib/domains/finance/workspace';
 import { type JsonRecord, type PrefetchResult, asRecord, extractBarsFromAsset } from './data-prefetch/values';
@@ -56,6 +57,7 @@ export async function prefetchQuantDataForRunPlan(params: {
     return { skipped: true, summary: `能力 ${params.plan.capabilityId} 暂不需要平台预取数据。` };
   }
 
+  const researchTime = researchTimeForPlan(params.plan);
   await ensureQuantWorkspace(params.projectPath);
   const runId = params.plan.runId;
   const rawFiles: string[] = [];
@@ -132,7 +134,7 @@ export async function prefetchQuantDataForRunPlan(params: {
   });
 
   const quoteMap = new Map<string, JsonRecord>();
-  if (symbols.length > 1) {
+  if (symbols.length > 1 && !researchTime) {
     try {
       const batchQuotes = await fetchJson('/api/v1/quotes/realtime', {
         method: 'POST',
@@ -209,6 +211,7 @@ export async function prefetchQuantDataForRunPlan(params: {
         selectionRanking,
         ...(tradingPlan ? { tradingPlan } : {}),
         conclusion,
+        warnings,
       }
     : {
         ...primaryAsset,

@@ -15,3 +15,4 @@ export * from './agent-tools/dashboard-contract';
 export * from './agent-tools/dashboard-spec';
 export * from './agent-tools/quant-api';
 export * from './agent-tools/image-extraction';
+export * from './research-time';

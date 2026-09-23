@@ -26,7 +26,7 @@ def bars(count=65):
              'volume': 1000, 'amount': 1_000_000} for i in range(count)]
 
 
-rewrite = dict(schemaVersion=4, originalQuery='测试证券走势', normalizedQuery='测试证券走势',
+rewrite = dict(schemaVersion=5, originalQuery='测试证券走势', normalizedQuery='测试证券走势',
                rewrittenQuery='分析测试证券走势', capabilityHint='technical_analysis',
                status='ready', confidence=0.9, outputIntent='dashboard', broadUniverse=False,
                safety=dict(decision='allow', code=None, message=None),
@@ -49,6 +49,14 @@ case('rewrite_ready', 'query-rewrite/validate_query_rewrite', rewrite, {'valid':
 case('rewrite_ambiguous_ready', 'query-rewrite/validate_query_rewrite', changed(rewrite, ambiguousTargets=[{'query': '银行'}]), invalid=True)
 unavailable = changed(rewrite, execution=dict(strategy='llm_unavailable', llm=dict(attempted=True, applied=False, status='failed')))
 case('rewrite_no_unavailable_success', 'query-rewrite/validate_query_rewrite', unavailable, invalid=True)
+case('rewrite_unconfigured_failed', 'query-rewrite/validate_query_rewrite', changed(rewrite, status='failed',
+     execution=dict(strategy='llm_unavailable', llm=dict(attempted=False, applied=False, status='skipped_unconfigured'))), {'valid': True})
+case('rewrite_historical_missing_dates', 'query-rewrite/validate_query_rewrite',
+     changed(rewrite, timeRange=dict(unit='date_range', label='去年')), invalid=True)
+case('rewrite_historical_dates', 'query-rewrite/validate_query_rewrite',
+     changed(rewrite, timeRange=dict(unit='date_range', label='2025年下半年', startDate='2025-07-01', endDate='2025-12-31')), {'valid': True})
+case('rewrite_stored_v4_relative', 'query-rewrite/validate_query_rewrite', changed(rewrite, schemaVersion=4), {'valid': True})
+
 case('registry_local_first', 'quant-data-registry/select_data_route',
      dict(operation='historical_bars', symbol='600001', local_coverage=dict(available=True, covers_range=True)), {'decision': 'local_historical_bars'})
 case('registry_missing_provider', 'quant-data-registry/select_data_route',

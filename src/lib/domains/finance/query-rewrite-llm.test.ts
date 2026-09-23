@@ -18,7 +18,7 @@ describe('query rewrite LLM adapter', () => {
     const complete = vi.fn(async function* (_request: PiAgentModelRequest) {
       const payload = JSON.stringify({
         targetCandidates: ['北方稀土', '宁德时代'],
-        timeRange: { label: '去年下半年', value: null, unit: 'date_range', evidence: '去年下半年' },
+        timeRange: { label: '去年下半年', value: null, unit: 'date_range', startDate: '2025-07-01', endDate: '2025-12-31', evidence: '去年下半年' },
         analysisFocusId: 'comparison',
         outputIntent: 'dashboard',
         answerOnlyEvidence: null,
@@ -80,7 +80,7 @@ describe('query rewrite LLM adapter', () => {
     expect(request.messages[1].content).toContain('answerOnlyEvidence');
     expect(request.messages[1].content).toContain('broadUniverseEvidence');
     expect(request.messages[1].content).toContain('multiple unnamed securities');
-    expect(request.messages[1].content).toContain('帮我推荐6月3日要买的股票');
+    expect(request.messages[1].content).toContain('回顾2025年6月3日的股票');
     expect(request.messages[1].content).toContain('有哪些股票值得关注');
   });
 
@@ -94,7 +94,7 @@ describe('query rewrite LLM adapter', () => {
           nameDelta: 'emit_query_rewrite_semantics',
           argumentsDelta: JSON.stringify({
             targetCandidates: ['北方稀土', '宁德时代'],
-            timeRange: { label: '去年下半年', value: null, unit: 'date_range', evidence: '去年下半年' },
+            timeRange: { label: '去年下半年', value: null, unit: 'date_range', startDate: '2025-07-01', endDate: '2025-12-31', evidence: '去年下半年' },
             analysisFocusId: 'comparison',
             outputIntent: 'dashboard',
             answerOnlyEvidence: 'None',

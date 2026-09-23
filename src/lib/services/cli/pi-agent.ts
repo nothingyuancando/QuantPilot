@@ -1,3 +1,4 @@
+import { researchTimeForPlan } from '@/lib/domains/finance/research-time';
 /** QuantPilot integration for the upstream PI Agent runtime. */
 
 import fs from 'node:fs/promises';
@@ -844,6 +845,7 @@ async function executePiAgentPhase(
     const maxToolOutputChars = positiveIntegerEnv('PI_AGENT_TOOL_OUTPUT_CHARS', 6_000);
     const tools = createFinancePiAgentTools({
       workspaceRoot: workspace,
+      quantApi: { researchTime: runPlan ? researchTimeForPlan(runPlan) : null },
       profile,
       ...(runtimeProfileWriteGlobs
         ? {

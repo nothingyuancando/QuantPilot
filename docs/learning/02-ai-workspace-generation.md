@@ -15,7 +15,7 @@ QuantPilot 生成的不是一张静态截图，而是一个独立 Next.js 工作
 | 概念 | 含义 |
 | --- | --- |
 | 工作空间 | `data/projects/project-*` 下的一份生成项目源码和产物 |
-| query rewrite | 所选 LLM 生成的 schema v4 语义合同；标的由 Resolver 复核，失败时停止下游执行 |
+| query rewrite | 所选 LLM 生成的 schema v5 语义合同；标的由 Resolver 复核，失败时停止下游执行 |
 | run plan | 平台基于 query rewrite 形成的任务计划，包括标准代码、页面类型、需要哪些数据和验证重点 |
 | data file | 最终页面消费的数据文件，通常是 `data_file/final/dashboard-data.json` |
 | evidence | 数据来源、质量、限制和可追溯材料，避免页面只展示结果却没有依据 |

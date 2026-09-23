@@ -42,6 +42,8 @@ import {
   FINANCE_RUN_PLAN_RELATIVE_PATH,
 } from '@/lib/domains/finance/workspace-artifacts';
 
+import { researchTimeForPlan, resolveResearchTime, type QuantResearchTime } from './research-time';
+
 type RunPlanStatus = 'pending' | 'planned' | 'needs_clarification' | 'refused' | 'failed';
 
 export interface QuantRunPlan {
@@ -57,6 +59,7 @@ export interface QuantRunPlan {
   queryRewrite?: QuantQueryRewriteResult;
   symbols: string[];
   timeRange: string | null;
+  researchTime?: QuantResearchTime | null;
   dataRequirements: string[];
   analysisSteps: string[];
   visualization: {
@@ -600,6 +603,9 @@ export async function writeInitialRunPlan(params: {
     queryRewrite,
     symbols,
     timeRange,
+    researchTime: failure || refused ? null : queryRewrite.timeRange
+      ? resolveResearchTime(queryRewrite.timeRange)
+      : inheritPreviousPlan && params.previousPlan ? researchTimeForPlan(params.previousPlan) : null,
     dataRequirements: failure ? [] : dataRequirements,
     analysisSteps: failure
       ? [failure.message]

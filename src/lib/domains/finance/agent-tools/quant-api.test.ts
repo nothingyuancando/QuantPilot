@@ -36,6 +36,24 @@ describe('PI Agent typed quant and terminal tools', () => {
     await fs.rm(workspace, { recursive: true, force: true });
   });
 
+  it('binds historical tool calls to the platform cutoff and refuses overrides before fetching', async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async () => Response.json({ symbol: '600519', period: 'daily', adjustment: 'none',
+      bars: [{ date: '2025-12-31', close: 10 }] }));
+    const tool = createQuantApiGetTool({ fetchImpl, researchTime: { schemaVersion: 1, startDate: null,
+      endDate: '2025-12-31', asOf: '2025-12-31T15:59:59.999Z', timezone: 'Asia/Shanghai' } });
+    expect(await invoke(tool, { path: '/api/v1/quotes/history/600519' })).toMatchObject({ ok: true });
+    const url = new URL(String(fetchImpl.mock.calls[0][0]));
+    expect(Object.fromEntries(url.searchParams)).toEqual({ end: '20251231', period: 'daily', adjustment: 'none' });
+    for (const input of [
+      { path: '/api/v1/quotes/realtime/600519' },
+      { path: '/api/v1/quotes/history/600519', query: { end: '20500101' } },
+      { path: '/api/v1/quotes/history/600519', query: { adjustment: 'qfq' } },
+    ]) expect(await invoke(tool, input)).toMatchObject({ ok: false, error: { code: 'QUANT_RESEARCH_TIME_UNSUPPORTED' } });
+    expect(fetchImpl).toHaveBeenCalledOnce();
+    fetchImpl.mockImplementationOnce(async () => Response.json({ symbol: '600519', period: 'daily', adjustment: 'none', bars: [{ date: '2026-01-01', close: 10 }] }));
+    expect(await invoke(tool, { path: '/api/v1/quotes/history/600519' })).toMatchObject({ ok: false, error: { code: 'QUANT_API_DATA_INVALID' } });
+  });
+
   it.each([
     ['not JSON', 'QUANT_API_INVALID_JSON'],
     ['{"symbol":"000001","bars":[]}', 'QUANT_API_DATA_INVALID'],

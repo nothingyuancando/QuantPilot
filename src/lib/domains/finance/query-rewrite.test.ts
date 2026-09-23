@@ -50,7 +50,7 @@ function resolvedSecurity(target: string, symbol = '600589', market = 'SH') {
   };
 }
 
-describe('quant query rewrite schema v4', () => {
+describe('quant query rewrite schema v5', () => {
   it('uses the selected LLM as the only semantic parser before resolving 大位科技', async () => {
     const semanticRewriter = successfulRewrite(semanticData({
       timeRange: {
@@ -79,7 +79,7 @@ describe('quant query rewrite schema v4', () => {
     }));
     expect(resolver).toHaveBeenCalledWith('大位科技', 5);
     expect(result).toMatchObject({
-      schemaVersion: 4,
+      schemaVersion: 5,
       status: 'ready',
       capabilityHint: 'technical_analysis',
       targetCandidates: ['大位科技'],
@@ -100,6 +100,7 @@ describe('quant query rewrite schema v4', () => {
       timeRange: {
         label: '去年下半年',
         unit: 'date_range',
+        startDate: '2025-07-01', endDate: '2025-12-31',
         evidence: '去年下半年',
       },
       analysisFocusId: 'comparison',
@@ -371,7 +372,7 @@ describe('quant query rewrite schema v4', () => {
     });
 
     expect(result).toMatchObject({
-      schemaVersion: 4,
+      schemaVersion: 5,
       status: 'refused',
       execution: {
         strategy: 'safety_refusal',

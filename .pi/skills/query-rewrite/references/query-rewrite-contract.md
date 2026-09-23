@@ -8,11 +8,11 @@
 
 | Field | Contract |
 | --- | --- |
-| `schemaVersion` | Must equal `4`. |
+| `schemaVersion` | New contracts use `5`; stored `4` remains readable. Historical ranges without structured dates must be regenerated. |
 | `originalQuery` | Exact user-facing input before normalization. |
 | `normalizedQuery` | Unicode-normalized, whitespace-bounded input. |
 | `rewrittenQuery` | Execution summary; never a user quote. |
-| `status` | `ready`, `partial`, `needs_clarification`, or `refused`. |
+| `status` | `ready`, `partial`, `needs_clarification`, `failed`, or `refused`. |
 | `confidence` | Number between `0` and `1`. |
 | `capabilityHint` | LLM-derived task-family hint; only explicit manual selection may override it. |
 | `targetCandidates` | Literal names or explicit codes accepted from the LLM result. |
@@ -41,7 +41,8 @@ The LLM does not own identity. Target candidates must occur literally in `normal
 
 - `ready`: all named candidates are resolved; a validated broad-universe request may be ready without symbols.
 - `partial`: at least one target is resolved and at least one is unresolved.
-- `needs_clarification`: a required target is missing/ambiguous, the Resolver is unavailable, or Query Rewrite failed closed.
+- `needs_clarification`: a required target is missing or ambiguous.
+- `failed`: Query Rewrite or Resolver infrastructure failed; never ask the user to clarify a system failure.
 - `refused`: `safety.decision=refuse`; no model, Resolver, data API, Agent, or dashboard work may follow.
 
 ## Issue codes
@@ -63,3 +64,9 @@ The LLM does not own identity. Target candidates must occur literally in `normal
 5. Data skills own read-only API retrieval with resolved codes.
 6. Data Quality owns source, freshness, missing-field, and limitation evidence.
 7. Dashboard Visualization consumes only the run plan and validated final/evidence artifacts.
+
+## Historical research time
+
+`timeRange` may carry `startDate` and `endDate` as inclusive ISO calendar dates plus `asOf` as an ISO timestamp with timezone. `date_range` requires `endDate`; an omitted `asOf` defaults to Shanghai end-of-day. Future cutoffs, invalid dates, reversed ranges and ranges over 1,000 calendar days are rejected. Intraday cutoffs exclude the same day's daily bar conservatively.
+
+The run plan freezes this as `researchTime` (schema 1). Prefetch and `quant_api_get` share the cutoff: history/technical/backtests use `start/end`, `period=daily`, `adjustment=none`; financials use the version archive with `as_of`. Unsupported endpoints stop with `QUANT_RESEARCH_TIME_UNSUPPORTED`. A successful HTTP response still fails if its dates, vintage times or snapshot identity violate the contract. Missing financial history is a visible gap, never a latest-data fallback. Calendar-filtered prices do not certify historical price revisions or industry membership.
