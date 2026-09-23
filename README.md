@@ -241,6 +241,7 @@ PI Agent 的实际执行读取平台保存的项目版本。Claude Code / Codex 
 | 填了 Key，仍访问 `38082` | 首页或项目是否仍选着默认 Qwen / ModelPort 模型 | 官方直连需显式选择 `Official Direct` |
 | 规划失败或返回 `401/403` | 当前所选模型的凭据、服务地址与授权范围 | [模型配置](docs/configuration.md)；模型故障无需改写研究问题 |
 | 一直排队 | Worker 模式下是否只启动了 `dev:web` | 使用 `npm run dev`，到 `/ops-platform` 查看 Worker 与队列 |
+| 研究历史日期却提示数据缺口 | 历史截止时间、财报归档和日线覆盖是否满足请求 | 明确写起止日期；平台不会用最新财报或实时价补齐历史结果，见 [时间合同](docs/api-reference.md) |
 | 看板为空或没有最新数据 | 标的、日期、覆盖范围、数据源返回的限制 | 策略平台检查目标范围，按需补数 |
 | 构建报 `unshare`，或视觉检查找不到浏览器 | Linux namespace 能力、Chromium 及系统依赖 | [沙箱与浏览器检查](docs/learning/01-quick-start.md#沙箱与浏览器检查) |
 | Skills 保存提示版本冲突 | 编辑期间是否有其他修改 | 保留未提交内容，重新读取并核对差异；详见 [Skills 治理](docs/skills-governance.md) |
