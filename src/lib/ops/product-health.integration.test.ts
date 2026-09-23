@@ -24,7 +24,7 @@ describe.skipIf(!databaseUrl)('product health (PostgreSQL integration)', () => {
     try {
       await client.agentMission.deleteMany({ where: { projectId: scope } });
       await client.project.deleteMany({ where: { id: scope } });
-      await client.authUser.deleteMany({ where: { id: scope } });
+      await client.authUser.deleteMany({ where: { id: { startsWith: scope } } });
       await client.researchReportRun.deleteMany({ where: { id: scope } });
     } finally {
       await client.$disconnect();
@@ -73,5 +73,38 @@ describe.skipIf(!databaseUrl)('product health (PostgreSQL integration)', () => {
       missionAcceptanceRate: 50, uniqueResearchers: 1, repeatResearchers: 1,
       medianDeliveryMs: 60_000, deliveryTimingSamples: 1,
     });
+    expect(dashboard.firstResearch).toMatchObject({ available: true, maturedResearchers: 1,
+      acceptedResearchers: 1, completionRate: 100, medianDeliveryMs: 60_000 });
+  });
+
+  it('does not classify returning researchers as new and waits for a complete observation window', async () => {
+    const observationNow = new Date('2021-01-08T12:00:00Z');
+    const actors = ['returning', 'retry', 'observing'].map((name) => `${scope}:${name}`);
+    await client.authUser.createMany({ data: actors.map((id) => ({ id, name: 'Cohort fixture', email: `${id}@test.invalid` })) });
+    const rows = [
+      [actors[0], '2020-12-01T12:00:00Z', false],
+      [actors[0], '2021-01-04T12:00:00Z', true],
+      [actors[1], '2021-01-04T12:00:00Z', false],
+      [actors[1], '2021-01-04T12:05:00Z', true],
+      [actors[2], '2021-01-08T11:00:00Z', true],
+    ] as const;
+    for (const [index, [actorUserId, timestamp, accepted]] of rows.entries()) {
+      const id = `${scope}:cohort:${index}`;
+      const createdAt = new Date(timestamp);
+      await client.userRequest.create({ data: { id, projectId: scope, actorUserId,
+        instruction: 'Cohort fixture', status: accepted ? 'completed' : 'failed', createdAt } });
+      if (!accepted) continue;
+      await client.agentMission.create({ data: { id, projectId: scope, requestId: id,
+        status: 'completed', activeSlot: null, candidateVersion: 1,
+        spec: { fixture: true }, specHash: `sha256:${id}`,
+        completedAt: new Date(createdAt.getTime() + 60_000),
+        receipts: { create: { id, candidateVersion: 1, receiptType: 'acceptance', verdict: 'accepted',
+          subjectHash: `sha256:${id}`, receiptHash: `sha256:${id}`, payload: { fixture: true } } },
+      } });
+      await client.agentMission.update({ where: { id }, data: { acceptedReceiptId: id } });
+    }
+    const result = await getProductHealthDashboard({ client, now: observationNow });
+    expect(result.firstResearch).toMatchObject({ available: true, researchers: 2, maturedResearchers: 1,
+      observingResearchers: 1, acceptedResearchers: 1, completionRate: 100, medianDeliveryMs: 360_000 });
   });
 });

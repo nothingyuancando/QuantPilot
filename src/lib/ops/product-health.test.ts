@@ -40,6 +40,7 @@ function request(
     createdAt: new Date('2026-09-05T10:00:00.000Z'),
     completedAt: new Date('2026-09-05T10:10:00.000Z'),
     agentMission: mission(),
+    generationJob: null,
     ...overrides,
   };
 }
@@ -171,7 +172,7 @@ describe('product health metrics', () => {
     const countReports = vi.fn().mockResolvedValue(15_000);
     const dashboard = await getProductHealthDashboard({
       now,
-      client: { userRequest: { findMany }, researchReport: { count: countReports } },
+      client: { userRequest: { findMany, groupBy: vi.fn().mockResolvedValue([]) }, researchReport: { count: countReports } },
     });
     const range = { gte: new Date('2026-08-29T12:00:00.000Z'), lte: now };
 
@@ -206,11 +207,62 @@ describe('product health metrics', () => {
     expect(dashboard.summary.medianDeliveryMs).toBeNull();
   });
 
+  it('reads earliest submissions across history and counts an accepted retry in the first cohort', async () => {
+    const createdAt = new Date('2026-09-03T10:00:00Z');
+    const groupBy = vi.fn().mockResolvedValue([{ actorUserId: 'user-a', _min: { createdAt } }]);
+    const dashboard = await getProductHealthDashboard({ now,
+      client: {
+        userRequest: { findMany: async () => [request({ createdAt,
+          agentMission: mission({ completedAt: new Date('2026-09-03T10:10:00Z') }),
+        })], groupBy }, researchReport: { count: async () => 0 },
+      },
+    });
+    expect(groupBy).toHaveBeenCalledWith({ by: ['actorUserId'],
+      where: { actorUserId: { in: ['user-a'] }, createdAt: { lte: now } }, _min: { createdAt: true } });
+    expect(dashboard.firstResearch).toMatchObject({ available: true, maturedResearchers: 1,
+      acceptedResearchers: 1, completionRate: 100, medianDeliveryMs: 600_000 });
+  });
+
+  it('isolates historical lookup failures from available window metrics', async () => {
+    const dashboard = await getProductHealthDashboard({ now,
+      client: { userRequest: { findMany: async () => [request()],
+        groupBy: async () => { throw new Error('postgres secret connection'); },
+      }, researchReport: { count: async () => 2 } },
+    });
+    expect(dashboard.available).toBe(true);
+    expect(dashboard.summary.requests).toBe(1);
+    expect(dashboard.firstResearch.available).toBe(false);
+    expect(dashboard.firstResearch.error).not.toContain('secret');
+  });
+
+  it('does not infer first submissions from a truncated request window', async () => {
+    const groupBy = vi.fn();
+    const dashboard = await getProductHealthDashboard({ now,
+      client: { userRequest: { findMany: async () => Array.from({ length: 10_001 }, () => request()), groupBy },
+        researchReport: { count: async () => 0 } },
+    });
+    expect(groupBy).not.toHaveBeenCalled();
+    expect(dashboard.firstResearch).toMatchObject({ available: false, completionRate: null });
+    expect(dashboard.firstResearch.error).toContain('截断');
+  });
+
+  it('measures only valid first dispatch waits without treating pending tasks as instant starts', () => {
+    const queuedAt = new Date('2026-09-05T10:00:00Z');
+    const jobs = [null, 60_000, 0, 120_000, -1, 86_400_000, NaN].map((delay) => ({
+      queuedAt, startedAt: delay === null ? null : new Date(queuedAt.getTime() + delay),
+    }));
+    const { summary } = summarizeProductHealth({ generatedAt: now, reports: 0,
+      requests: jobs.map((generationJob) => request({ generationJob })),
+    });
+    expect(summary).toMatchObject({ queueTimingSamples: 3, invalidQueueTimings: 3,
+      medianQueueWaitMs: 60_000, p90QueueWaitMs: 108_000 });
+  });
+
   it('degrades without leaking database errors', async () => {
     const dashboard = await getProductHealthDashboard({
       now,
       client: {
-        userRequest: { findMany: async () => { throw new Error('postgres password leaked'); } },
+        userRequest: { findMany: async () => { throw new Error('postgres password leaked'); }, groupBy: vi.fn() },
         researchReport: { count: async () => 0 },
       },
     });
@@ -225,7 +277,7 @@ describe('product health metrics', () => {
       now,
       enabled: false,
       client: {
-        userRequest: { findMany: async () => { queried = true; return []; } },
+        userRequest: { findMany: async () => { queried = true; return []; }, groupBy: vi.fn() },
         researchReport: { count: async () => { queried = true; return 0; } },
       },
     });

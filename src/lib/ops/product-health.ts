@@ -1,6 +1,12 @@
 import type { Prisma } from '@prisma/client';
 
 import { prisma } from '@/lib/db/client';
+import { summarizeFirstResearch, unavailableFirstResearch, type FirstResearchMetrics } from './first-research';
+
+// Keep Prisma's conditional groupBy inference outside the injected client context.
+const groupFirstRequests = (where: Prisma.UserRequestWhereInput) => prisma.userRequest.groupBy({
+  by: ['actorUserId'], where, _min: { createdAt: true },
+});
 
 const DEFAULT_WINDOW_DAYS = 7;
 const MAX_REQUEST_SAMPLE = 10_000;
@@ -11,6 +17,9 @@ const requestSelect = {
   status: true,
   createdAt: true,
   completedAt: true,
+  generationJob: {
+    select: { queuedAt: true, startedAt: true },
+  },
   agentMission: {
     select: {
       id: true,
@@ -41,6 +50,11 @@ interface ProductHealthClient {
       take: number;
       select: typeof requestSelect;
     }): Promise<ProductHealthRequestSnapshot[]>;
+    groupBy(args: {
+      by: ['actorUserId'];
+      where: Prisma.UserRequestWhereInput;
+      _min: { createdAt: true };
+    }): Promise<{ actorUserId: string | null; _min: { createdAt: Date | null } }[]>;
   };
   researchReport: {
     count(args: object): Promise<number>;
@@ -52,6 +66,7 @@ export interface ProductHealthDashboard {
   generatedAt: string;
   windowDays: number;
   sampled: boolean;
+  firstResearch: FirstResearchMetrics;
   summary: {
     requests: number;
     activeProjects: number;
@@ -76,6 +91,10 @@ export interface ProductHealthDashboard {
     p95DeliveryMs: number | null;
     deliveryTimingSamples: number;
     invalidDeliveryTimings: number;
+    medianQueueWaitMs: number | null;
+    p90QueueWaitMs: number | null;
+    queueTimingSamples: number;
+    invalidQueueTimings: number;
   };
   error: string | null;
 }
@@ -111,6 +130,7 @@ export function summarizeProductHealth(params: {
   generatedAt: Date;
   windowDays?: number;
   sampled?: boolean;
+  firstResearch?: FirstResearchMetrics;
 }): ProductHealthDashboard {
   const terminalRequestStatuses = new Set(['completed', 'failed', 'cancelled']);
   const terminalMissionStatuses = new Set(['completed', 'failed', 'cancelled']);
@@ -141,12 +161,18 @@ export function summarizeProductHealth(params: {
     );
   }
   const repeatResearchers = [...researcherRequestCounts.values()].filter((count) => count >= 2).length;
+  const startedJobs = params.requests.flatMap((request) => request.generationJob?.startedAt ? [request.generationJob] : []);
+  const queueDurations = startedJobs.flatMap((job) => {
+    const duration = job.startedAt!.getTime() - job.queuedAt.getTime();
+    return Number.isFinite(duration) && duration >= 0 && job.startedAt! <= params.generatedAt ? [duration] : [];
+  }).sort((left, right) => left - right);
 
   return {
     available: true,
     generatedAt: params.generatedAt.toISOString(),
     windowDays: params.windowDays ?? DEFAULT_WINDOW_DAYS,
     sampled: params.sampled ?? false,
+    firstResearch: params.firstResearch ?? unavailableFirstResearch('首次研究指标需要全历史首次提交时间。'),
     summary: {
       requests: params.requests.length,
       activeProjects: new Set(params.requests.map((request) => request.projectId)).size,
@@ -171,6 +197,10 @@ export function summarizeProductHealth(params: {
       p95DeliveryMs: percentile(deliveryDurations, 0.95),
       deliveryTimingSamples: deliveryDurations.length,
       invalidDeliveryTimings: acceptedDeliveries - deliveryDurations.length,
+      medianQueueWaitMs: percentile(queueDurations, 0.5),
+      p90QueueWaitMs: percentile(queueDurations, 0.9),
+      queueTimingSamples: queueDurations.length,
+      invalidQueueTimings: startedJobs.length - queueDurations.length,
     },
     error: null,
   };
@@ -193,7 +223,10 @@ export async function getProductHealthDashboard(params: {
   }
 
   const client: ProductHealthClient = params.client ?? {
-    userRequest: { findMany: (args) => prisma.userRequest.findMany(args) },
+    userRequest: {
+      findMany: (args) => prisma.userRequest.findMany(args),
+      groupBy: (args) => groupFirstRequests(args.where),
+    },
     researchReport: { count: (args) => prisma.researchReport.count(args) },
   };
   const since = new Date(now.getTime() - windowDays * 24 * 60 * 60 * 1_000);
@@ -209,12 +242,33 @@ export async function getProductHealthDashboard(params: {
       client.researchReport.count({ where: { reportDate: { gte: since, lte: now } } }),
     ]);
     const sampled = requests.length > MAX_REQUEST_SAMPLE;
+    let firstResearch = unavailableFirstResearch('请求窗口已截断，首次研究指标暂不计算。');
+    if (!sampled) {
+      const actors = [...new Set(requests.flatMap((request) => request.actorUserId ? [request.actorUserId] : []))];
+      try {
+        const firstRequests = actors.length ? await client.userRequest.groupBy({
+          by: ['actorUserId'],
+          where: { actorUserId: { in: actors }, createdAt: { lte: now } },
+          _min: { createdAt: true },
+        }) : [];
+        firstResearch = summarizeFirstResearch({
+          firstRequests, since, now,
+          acceptedRequests: requests.filter((request) => hasAcceptedEvidence(request.agentMission)).map((request) => ({
+            actorUserId: request.actorUserId, createdAt: request.createdAt,
+            completedAt: request.agentMission?.completedAt ?? null,
+          })),
+        });
+      } catch {
+        firstResearch = unavailableFirstResearch('首次研究历史暂不可用，窗口指标仍可查看。');
+      }
+    }
     return summarizeProductHealth({
       requests: requests.slice(0, MAX_REQUEST_SAMPLE),
       reports,
       generatedAt: now,
       windowDays,
       sampled,
+      firstResearch,
     });
   } catch {
     return unavailableProductHealthDashboard({
@@ -235,6 +289,7 @@ function unavailableProductHealthDashboard(params: {
     generatedAt: params.now.toISOString(),
     windowDays: params.windowDays,
     sampled: false,
+    firstResearch: unavailableFirstResearch(params.error),
     summary: {
       requests: 0,
       activeProjects: 0,
@@ -259,6 +314,10 @@ function unavailableProductHealthDashboard(params: {
       p95DeliveryMs: null,
       deliveryTimingSamples: 0,
       invalidDeliveryTimings: 0,
+      medianQueueWaitMs: null,
+      p90QueueWaitMs: null,
+      queueTimingSamples: 0,
+      invalidQueueTimings: 0,
     },
     error: params.error,
   };

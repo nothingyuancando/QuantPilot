@@ -8,6 +8,12 @@ const fixture: ProductHealthDashboard = {
   windowDays: 7,
   sampled: true,
   error: null,
+  firstResearch: {
+    available: false, observationHours: 24, researchers: 0, maturedResearchers: 0,
+    observingResearchers: 0, acceptedResearchers: 0, completionRate: null,
+    medianDeliveryMs: null, p90DeliveryMs: null, invalidDeliveryTimings: 0,
+    error: '请求窗口已截断，首次研究指标暂不计算。',
+  },
   summary: {
     requests: 10_000,
     activeProjects: 200,
@@ -32,6 +38,10 @@ const fixture: ProductHealthDashboard = {
     p95DeliveryMs: 600_000,
     deliveryTimingSamples: 5998,
     invalidDeliveryTimings: 1,
+    medianQueueWaitMs: 10_000,
+    p90QueueWaitMs: 20_000,
+    queueTimingSamples: 8000,
+    invalidQueueTimings: 0,
   },
 };
 
@@ -66,7 +76,9 @@ test('refresh renders outcome evidence and preserves it on a subsequent API erro
     await route.fulfill({ response, json: { ...payload, data: { ...payload.data, productHealth: fixture } } });
   });
   await page.getByRole('button', { name: '刷新运行状态' }).click();
-  await expect(panel.locator('article')).toHaveCount(6);
+  await expect(panel.locator('article')).toHaveCount(8);
+  await expect(panel).toContainText('首次研究指标暂不计算');
+  await expect(panel).toContainText('8000 个已启动任务');
   await expect(panel).toContainText('1800 个进行中');
   await expect(panel).toContainText('200 个等待澄清');
   await expect(panel).toContainText('P90 5 分钟');
@@ -84,7 +96,26 @@ test('refresh renders outcome evidence and preserves it on a subsequent API erro
   }));
   await page.getByRole('button', { name: '刷新运行状态' }).click();
   await expect(page.getByText('测试：指标服务暂不可用', { exact: true })).toBeVisible();
-  await expect(panel.locator('article')).toHaveCount(6);
+  await expect(panel.locator('article')).toHaveCount(8);
   await expect(page.getByRole('button', { name: '刷新运行状态' })).toBeEnabled();
   expect(errors).toEqual([]);
+});
+
+test('matured first-research cohort displays completion and observation counts', async ({ page }) => {
+  await page.goto('/ops-platform');
+  await page.route('**/api/ops/platform', async (route) => {
+    const response = await route.fetch();
+    const payload = await response.json();
+    await route.fulfill({ response, json: { ...payload, data: { ...payload.data, productHealth: {
+      ...fixture, sampled: false, firstResearch: { ...fixture.firstResearch, available: true, error: null,
+        researchers: 10, maturedResearchers: 8, observingResearchers: 2, acceptedResearchers: 6,
+        completionRate: 75, medianDeliveryMs: 120_000, p90DeliveryMs: 240_000 },
+    } } } });
+  });
+  await page.getByRole('button', { name: '刷新运行状态' }).click();
+  const card = page.getByRole('region', { name: '研究闭环指标' }).locator('article').filter({ hasText: '首次研究 24 小时完成率' });
+  await expect(card).toContainText('75%');
+  await expect(card).toContainText('6/8 位已观察满 24 小时');
+  await expect(card).toContainText('2 位仍在观察');
+  await expect(card).toContainText('首次交付中位耗时 2 分钟');
 });
