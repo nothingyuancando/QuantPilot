@@ -126,7 +126,7 @@ describe('product health metrics', () => {
       generatedAt: now,
       reports: 0,
       requests: [
-        ...[0, 60_000, 120_000, 180_000].map((duration) => request({
+        ...[120_000, 0, 180_000, 60_000].map((duration) => request({
           agentMission: mission({ completedAt: new Date(new Date('2026-09-05T10:00:00Z').getTime() + duration) }),
         })),
         request({ agentMission: mission({ acceptedReceiptId: null, completedAt: now }) }),
@@ -155,7 +155,8 @@ describe('product health metrics', () => {
 
     expect(summary).toMatchObject({
       cancelledRequests: 1,
-      activeRequests: 2,
+      activeRequests: 1,
+      clarificationRequests: 1,
       terminalMissions: 2,
       requestCompletionRate: 50,
       missionAcceptanceRate: 50,
@@ -183,6 +184,17 @@ describe('product health metrics', () => {
     expect(dashboard.summary.requests).toBe(10_000);
     expect(dashboard.summary.reports).toBe(15_000);
     expect(dashboard.sampled).toBe(count > 10_000);
+  });
+
+  it('does not report waiting-only requests as running work or terminal failures', () => {
+    const { summary } = summarizeProductHealth({
+      generatedAt: now, reports: 0,
+      requests: [request({ status: 'needs_clarification', agentMission: null })],
+    });
+    expect(summary).toMatchObject({
+      requests: 1, activeRequests: 0, clarificationRequests: 1,
+      failedRequests: 0, requestCompletionRate: null, missionAcceptanceRate: null,
+    });
   });
 
   it('uses null rates when there is no eligible denominator', () => {

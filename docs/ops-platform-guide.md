@@ -28,7 +28,7 @@ http://localhost:3000/ops-platform
 
 | 指标 | 口径 |
 | --- | --- |
-| 研究请求 | 创建时间位于窗口起点至本次采集时间（两端包含）的 `user_requests`，同时展示活跃项目和进行中请求；完成率为 completed / (completed + failed + cancelled) |
+| 研究请求 | 创建时间位于窗口起点至本次采集时间（两端包含）的 `user_requests`，分别展示活跃项目、进行中和等待澄清（`needs_clarification`）的请求；等待澄清不计入进行中或终态，完成率为 completed / (completed + failed + cancelled) |
 | Mission 验收率 | 对应请求的终态 Mission 中，通过验收的比例；completed、failed、cancelled 进入分母，等待输入、运行、验证、修复不进入分母 |
 | 验收证据完整率 | 已完成 Mission 中，有匹配的 acceptance / accepted 回执的比例；同时核对回执 ID、Mission 归属和 candidateVersion，缺失或不匹配会显示数量提示 |
 | 交付中位耗时 / P90 / P95 | 只统计通过验收的 Mission，从请求创建到 Mission 完成的时长；缺失、无效、负值和晚于采集时间的完成时间排除并提示。分位数使用排序后线性插值，无有效样本显示“暂无” |

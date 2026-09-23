@@ -59,6 +59,7 @@ export interface ProductHealthDashboard {
     failedRequests: number;
     cancelledRequests: number;
     activeRequests: number;
+    clarificationRequests: number;
     acceptedDeliveries: number;
     completedMissions: number;
     unverifiedCompletedMissions: number;
@@ -85,9 +86,8 @@ function percentage(numerator: number, denominator: number): number | null {
 }
 
 // Linear interpolation, including the ordinary midpoint median for even samples.
-function percentile(values: number[], quantile: number): number | null {
-  if (!values.length) return null;
-  const sorted = [...values].sort((left, right) => left - right);
+function percentile(sorted: number[], quantile: number): number | null {
+  if (!sorted.length) return null;
   const position = (sorted.length - 1) * quantile;
   const lower = Math.floor(position);
   const upper = Math.ceil(position);
@@ -118,7 +118,8 @@ export function summarizeProductHealth(params: {
   const failedRequests = params.requests.filter((request) => request.status === 'failed').length;
   const cancelledRequests = params.requests.filter((request) => request.status === 'cancelled').length;
   const terminalRequests = params.requests.filter((request) => terminalRequestStatuses.has(request.status)).length;
-  const activeRequests = params.requests.length - terminalRequests;
+  const clarificationRequests = params.requests.filter((request) => request.status === 'needs_clarification').length;
+  const activeRequests = params.requests.length - terminalRequests - clarificationRequests;
   const missions = params.requests.flatMap((request) => request.agentMission ? [request.agentMission] : []);
   const terminalMissions = missions.filter((mission) => terminalMissionStatuses.has(mission.status));
   const completedMissions = missions.filter((mission) => mission.status === 'completed').length;
@@ -130,7 +131,7 @@ export function summarizeProductHealth(params: {
     const duration = completedAt.getTime() - request.createdAt.getTime();
     if (!Number.isFinite(duration) || duration < 0 || completedAt > params.generatedAt) return [];
     return [duration];
-  });
+  }).sort((left, right) => left - right);
   const researcherRequestCounts = new Map<string, number>();
   for (const request of params.requests) {
     if (!request.actorUserId) continue;
@@ -153,6 +154,7 @@ export function summarizeProductHealth(params: {
       failedRequests,
       cancelledRequests,
       activeRequests,
+      clarificationRequests,
       acceptedDeliveries,
       completedMissions,
       unverifiedCompletedMissions: completedMissions - acceptedDeliveries,
@@ -240,6 +242,7 @@ function unavailableProductHealthDashboard(params: {
       failedRequests: 0,
       cancelledRequests: 0,
       activeRequests: 0,
+      clarificationRequests: 0,
       acceptedDeliveries: 0,
       completedMissions: 0,
       unverifiedCompletedMissions: 0,

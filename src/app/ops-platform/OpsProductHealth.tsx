@@ -22,7 +22,7 @@ export function OpsProductHealth({ data }: { data: ProductHealthDashboard }) {
       <OpsSectionHeader
         eyebrow="PRODUCT OUTCOMES"
         title={`最近 ${data.windowDays} 天研究闭环`}
-        description="按请求创建时间观察研究结果；进行中的请求不进入终态完成率，交付耗时只统计有有效验收回执的 Mission。"
+        description="按请求创建时间观察研究结果；进行中和等待澄清的请求不进入终态完成率，交付耗时只统计有有效验收回执的 Mission。"
         action={!data.available
           ? <OpsStatusBadge status="warning" label="指标降级" />
           : data.sampled
@@ -36,7 +36,7 @@ export function OpsProductHealth({ data }: { data: ProductHealthDashboard }) {
       ) : (
         <>
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-            <OpsMetricCard icon={<ListChecks className="h-4 w-4" />} label="研究请求" value={summary.requests} helper={`${summary.activeProjects} 个活跃项目 · ${summary.activeRequests} 个进行中 · 终态完成率 ${rate(summary.requestCompletionRate)}`} tone="blue" />
+            <OpsMetricCard icon={<ListChecks className="h-4 w-4" />} label="研究请求" value={summary.requests} helper={`${summary.activeProjects} 个活跃项目 · ${summary.activeRequests} 个进行中 · ${summary.clarificationRequests} 个等待澄清 · 终态完成率 ${rate(summary.requestCompletionRate)}`} tone="blue" />
             <OpsMetricCard icon={<Target className="h-4 w-4" />} label="Mission 验收率" value={rate(summary.missionAcceptanceRate)} helper={`${summary.acceptedDeliveries}/${summary.terminalMissions} 个终态 Mission 通过验收`} tone="blue" />
             <OpsMetricCard icon={<FileCheck2 className="h-4 w-4" />} label="验收证据完整率" value={rate(summary.evidenceCompletenessRate)} helper={`${summary.acceptedDeliveries}/${summary.completedMissions} 个已完成 Mission 有匹配的有效回执`} tone={summary.unverifiedCompletedMissions ? "amber" : "blue"} />
             <OpsMetricCard icon={<Timer className="h-4 w-4" />} label="交付中位耗时" value={duration(summary.medianDeliveryMs)} helper={`${summary.deliveryTimingSamples} 个有效样本 · P90 ${duration(summary.p90DeliveryMs)} · P95 ${duration(summary.p95DeliveryMs)}`} tone="blue" />

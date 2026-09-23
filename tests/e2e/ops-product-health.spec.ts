@@ -14,7 +14,8 @@ const fixture: ProductHealthDashboard = {
     completedRequests: 6000,
     failedRequests: 1000,
     cancelledRequests: 1000,
-    activeRequests: 2000,
+    activeRequests: 1800,
+    clarificationRequests: 200,
     acceptedDeliveries: 5999,
     completedMissions: 6000,
     unverifiedCompletedMissions: 1,
@@ -66,6 +67,8 @@ test('refresh renders outcome evidence and preserves it on a subsequent API erro
   });
   await page.getByRole('button', { name: '刷新运行状态' }).click();
   await expect(panel.locator('article')).toHaveCount(6);
+  await expect(panel).toContainText('1800 个进行中');
+  await expect(panel).toContainText('200 个等待澄清');
   await expect(panel).toContainText('P90 5 分钟');
   await expect(panel).toContainText('P95 10 分钟');
   await expect(panel).toContainText('不能代表整个窗口');
