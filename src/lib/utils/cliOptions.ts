@@ -1,4 +1,4 @@
-import { CLI_OPTIONS, type CLIOption } from '@/types/cli';
+import { CLI_OPTIONS, type CLIOption, type CLIStatusEntry } from '@/types/cli';
 import { getModelDefinitionsForCli, normalizeModelId } from '@/lib/constants/models';
 import {
   PRODUCT_CLI_ID,
@@ -110,3 +110,12 @@ export const buildActiveModelOptions = (statuses: Record<string, ModelAvailabili
 
   return options;
 };
+
+
+export function modelAvailabilityError(entry: CLIStatusEntry | undefined, model: string): string | null {
+  if (!entry || entry.checking) return '正在检查所选模型，请稍候。';
+  const check = entry.modelChecks?.find(item => item.id === model);
+  if (check) return check.status === 'available' ? null : check.message;
+  if (entry.available === true && entry.models?.includes(model)) return null;
+  return entry.error || '所选模型尚未通过访问检查，请重新检查或选择其他模型。';
+}

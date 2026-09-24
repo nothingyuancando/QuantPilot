@@ -24,17 +24,7 @@ export interface CLIOption {
   version?: string;
 }
 
-export interface CLIStatus {
-  [key: string]: {
-    installed: boolean;
-    version?: string;
-    checking: boolean;
-    error?: string;
-    available?: boolean;
-    configured?: boolean;
-    models?: string[];
-  };
-}
+export type { CLIStatus } from '../cli';
 
 export interface GlobalSettings {
   defaultCli?: CLIType;

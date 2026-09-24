@@ -99,7 +99,7 @@ Chromium 用于生成页面的视觉验收和浏览器测试。Linux 上若提�
 
 ### 2. 选择模型
 
-完成真实研究需要一个可用模型。暂时没有模型凭据，也可以继续启动和浏览页面；提交 AI 任务会失败，不会自动生成演示研究。
+完成真实研究需要一个可用模型。暂时没有模型凭据，也可以继续启动和浏览页面；首页会显示所选模型的问题，提交检查失败时保留输入和附件，不创建空研究项目。
 
 选择下面一种接入方式，将对应凭据写入 `.env.local`：
 
@@ -123,6 +123,8 @@ PI_AGENT_DISPATCH_MODE=worker
 启动后仍需在首页输入框的模型选择器中选择 **DeepSeek V4 Flash (Official Direct)**。若使用 ModelPort，保留 `QUANTPILOT_MODELPORT_ENABLED=1`，填写 `MODELPORT_API_KEY` 并选择该网关提供的模型；Memory 和 Knowledge 可独立关闭。`PI_AGENT_DISPATCH_MODE=worker` 让 `npm run dev` 同时托管研究 Worker。
 
 修改配置后重启应用。Compose 默认读取 `.env`，不读取 `.env.local`；首次使用保留自动生成的数据库端口与账号即可。
+
+运行 `npm run check:models` 可检查凭据、连接和模型目录授权；官方直连可以独立通过，无需同时配置 ModelPort。首页也提供“重新检查模型”，并在提交前再次检查所选模型。目录检查通过只是访问前提，实际推理、工具调用和研究质量仍以任务验收为准。
 
 完整模型配置、文件优先级和可选组件接入见 [配置指南](docs/configuration.md)。模型不可用时，研究规划会明确失败，不会用关键词解析冒充模型结果。
 

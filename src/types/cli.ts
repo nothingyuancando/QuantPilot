@@ -34,6 +34,13 @@ export interface CLIOption {
   features?: string[];
 }
 
+export interface ModelAvailability {
+  id: string;
+  configured: boolean;
+  status: 'available' | 'unconfigured' | 'disabled' | 'unreachable' | 'unauthorized' | 'unadvertised' | 'invalid_response';
+  message: string;
+}
+
 export type CLIStatusEntry = {
   installed: boolean;
   checking: boolean;
@@ -42,6 +49,7 @@ export type CLIStatusEntry = {
   available?: boolean;
   configured?: boolean;
   models?: string[];
+  modelChecks?: ModelAvailability[];
 };
 
 export type CLIStatus = Record<string, CLIStatusEntry>;

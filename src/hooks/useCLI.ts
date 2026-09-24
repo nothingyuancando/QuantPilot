@@ -11,50 +11,54 @@ interface UseCLIOptions {
   projectId: string;
 }
 
-const buildOptimisticStatus = (): CLIStatus =>
+const buildUnknownStatus = (): CLIStatus =>
   CLI_OPTIONS.reduce((acc, option) => {
     acc[option.id] = {
       installed: true,
       checking: false,
-      available: true,
-      configured: true,
-      models: option.models?.map((model) => model.id),
+      available: false,
+      configured: false,
+      models: [],
+      error: '模型状态尚未确认，请重新检查。',
     };
     return acc;
   }, {} as CLIStatus);
 
-export const createCliStatusFallback = (): CLIStatus => buildOptimisticStatus();
+export const createCliStatusFallback = (): CLIStatus => buildUnknownStatus();
 
 export async function fetchCliStatusSnapshot(): Promise<CLIStatus> {
   const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? '';
   try {
-    const response = await fetch(`${API_BASE}/api/settings/cli-status`);
+    const response = await fetch(`${API_BASE}/api/settings/cli-status`, {
+      cache: 'no-store', signal: AbortSignal.timeout(8_000),
+    });
     if (!response.ok) {
       throw new Error(`Failed to fetch CLI status: ${response.status}`);
     }
 
     const payload = (await response.json()) as CLIStatus;
-    const optimistic = buildOptimisticStatus();
+    const statuses = buildUnknownStatus();
 
     for (const option of CLI_OPTIONS) {
       const entry = payload[option.id];
       if (!entry) {
         continue;
       }
-      optimistic[option.id] = {
-        ...optimistic[option.id],
+      statuses[option.id] = {
+        ...statuses[option.id],
         ...entry,
         checking: false,
-        available: entry.available ?? entry.installed ?? optimistic[option.id]?.available ?? false,
-        configured: entry.configured ?? entry.installed ?? optimistic[option.id]?.configured ?? false,
-        models: entry.models ?? option.models?.map((model) => model.id),
+        available: entry.available === true,
+        configured: entry.configured === true,
+        models: Array.isArray(entry.models) ? entry.models : [],
+        error: entry.error || (entry.available === true ? undefined : statuses[option.id].error),
       };
     }
 
-    return optimistic;
+    return statuses;
   } catch (error) {
     console.warn('Failed to fetch CLI status from API:', error);
-    return buildOptimisticStatus();
+    return buildUnknownStatus();
   }
 }
 

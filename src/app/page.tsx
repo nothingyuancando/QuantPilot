@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import Image from "next/image";
 import Link from "next/link";
@@ -41,6 +41,7 @@ import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
 import { PlatformSwitcher } from "@/components/layout/PlatformSwitcher";
 import { CreateTaskForm } from "@/components/task/CreateTaskForm";
+import { ModelReadinessNotice } from "@/components/task/ModelReadinessNotice";
 import type { UploadedImage } from "@/components/task/CreateTaskForm";
 import { useAuth } from "@/contexts/AuthContext";
 import type { Project as ProjectSummary } from "@/types/project";
@@ -53,6 +54,7 @@ import {
   ACTIVE_CLI_OPTIONS_MAP,
   DEFAULT_ACTIVE_CLI,
   normalizeModelForCli,
+  modelAvailabilityError,
   sanitizeActiveCli,
   type ActiveCliId,
 } from "@/lib/utils/cliOptions";
@@ -311,22 +313,18 @@ export default function HomePage() {
   }, []);
 
   // --- CLI status ---
-  useEffect(() => {
-    const checkingStatus = ASSISTANT_OPTIONS.reduce<CLIStatus>(
-      (acc, cli) => {
-        acc[cli.id] = { installed: true, available: true, configured: true, checking: true };
-        return acc;
-      },
-      createCliStatusFallback()
-    );
+  const modelCheckSequence = useRef(0);
+  const refreshModelStatus = useCallback(async () => {
+    const sequence = ++modelCheckSequence.current;
+    const checkingStatus = createCliStatusFallback();
+    for (const entry of Object.values(checkingStatus)) entry.checking = true;
     setCLIStatus(checkingStatus);
-    fetchCliStatusSnapshot()
-      .then(setCLIStatus)
-      .catch((err) => {
-        console.error("Failed to check CLI status:", err);
-        setCLIStatus(createCliStatusFallback());
-      });
+    const status = await fetchCliStatusSnapshot();
+    if (sequence === modelCheckSequence.current) setCLIStatus(status);
+    return status;
   }, []);
+
+  useEffect(() => { void refreshModelStatus(); }, [refreshModelStatus]);
 
   // --- Data loading ---
   const load = useCallback(async () => {
@@ -473,10 +471,22 @@ export default function HomePage() {
     }
 
     setIsCreatingProject(true);
-    setCreationStep(pendingProjectId ? "正在重试启动研究" : "正在准备研究空间");
+    setCreationStep("正在检查所选模型");
     let createdProjectId = pendingProjectId;
 
     try {
+      const status = await refreshModelStatus();
+      const modelError = modelAvailabilityError(status[selectedAssistant], selectedModel);
+      if (modelError) {
+        // Bring recovery into view after the status render, including on small screens.
+        requestAnimationFrame(() => {
+          const notice = document.getElementById("model-readiness-notice");
+          notice?.focus({ preventScroll: true });
+          notice?.scrollIntoView({ block: "center" });
+        });
+        return;
+      }
+      setCreationStep(pendingProjectId ? "正在重试启动研究" : "正在准备研究空间");
       if (!createdProjectId) {
         const projectId = `project-${Date.now()}-${Math.random()
           .toString(36)
@@ -845,6 +855,12 @@ export default function HomePage() {
                 </div>
 
                 <div className="mx-auto mt-2.5 w-full max-w-[70rem]">
+                  <ModelReadinessNotice
+                    status={cliStatus[selectedAssistant]}
+                    model={selectedModel}
+                    onRefresh={() => { void refreshModelStatus(); }}
+                    onSettings={() => setShowGlobalSettings(true)}
+                  />
                   <CreateTaskForm
                     prompt={prompt}
                     onPromptChange={setPrompt}
