@@ -15,6 +15,22 @@
 | Memory/AKEP 使用回执 | PostgreSQL integration ledger | 按真实消费者审计保留；测试 Scope 随测试批次清理 |
 | 构建缓存和临时报告 | `.next`、`tmp`、coverage 等 | 可重建；使用 `npm run clean:local` |
 
+## 有限行情维护
+
+本地行情维护先检查 `npm run check:market-freshness`，再运行 `npm run market:maintain:dry-run`。dry-run 只读取股票池数量，输出日历区间、行情区间、批次和最大行数，不写行情。默认上限为 300 只证券；大于上限的池直接拒绝。`--calendar-only --dry-run` 可单独查看日历范围。
+
+补数窗口必须覆盖实际缺口。例如停更超过默认 14 天时，先明确扩大窗口，并在 dry-run 和执行时使用相同参数：
+
+```bash
+QUANTPILOT_MARKET_HISTORY_LOOKBACK_DAYS=30 npm run market:maintain:dry-run
+# 核实目标为本地开发库、范围与上限后执行
+QUANTPILOT_MARKET_HISTORY_LOOKBACK_DAYS=30 npm run market:maintain
+```
+
+`QUANTPILOT_MARKET_MAINTENANCE_MAX_SYMBOLS` 和 `QUANTPILOT_MARKET_MAINTENANCE_BATCH_SIZE` 共同限制批次数；不能整除时向下取整，避免越过证券上限。日历/行情窗口最多 366 天。未知命令行选项、非法数字、不同范围的正在运行任务，以及 partial/stopped/failed 结果均报错；不把部分完成视为维护成功。日志保留范围与任务 ID，明细在 ingestion job 中可查。超时只向本次创建的任务发停止请求，已有任务不会被取消。
+
+维护当前覆盖 `daily/qfq`，不代表未复权历史价格、财报版本或完整 PIT 均已补齐。最后的新鲜度门禁只证明最新日的覆盖，不能证明区间无缺口。生产补数仍须遵循[发布 Skill](../.agents/skills/quantpilot-production-release/SKILL.md) 的独立范围审查与授权，不随代码发布自动执行。
+
 ## 测试隔离
 
 财报版本数据库回归只允许显式传入 `MARKET_TEST_DATABASE_URL` 且数据库名以 `_test` 结尾；使用独立本地 Docker PostgreSQL 和临时存储。未配置时跳过，不能借用应用的 `DATABASE_URL`。测试结束只销毁该测试容器，不清理真实归档记录。

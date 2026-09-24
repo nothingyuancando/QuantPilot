@@ -7,7 +7,8 @@ const SHANGHAI_TIME_ZONE = 'Asia/Shanghai';
 
 
 function positiveInteger(name, fallback, { min = 1, max = 100_000 } = {}) {
-  const value = Number.parseInt(process.env[name] ?? '', 10) || fallback;
+  const raw = process.env[name]?.trim();
+  const value = raw ? Number(raw) : fallback;
   if (!Number.isSafeInteger(value) || value < min || value > max) {
     throw new Error(`${name} must be an integer between ${min} and ${max}.`);
   }
@@ -45,6 +46,10 @@ function compactDate(isoDate) {
 }
 
 function parseArgs(argv) {
+  const supported = new Set(['--calendar-only', '--dry-run', '--skip-freshness']);
+  for (const arg of argv) {
+    if (!supported.has(arg)) throw new Error(`Unknown maintenance option: ${arg}`);
+  }
   return {
     calendarOnly: argv.includes('--calendar-only'),
     dryRun: argv.includes('--dry-run'),
@@ -113,7 +118,7 @@ const ACTIVE_INGESTION_STATUSES = new Set([
   'resume_requested',
 ]);
 
-async function waitForIngestionJob({ baseUrl, universeId, jobId, timeoutMs, pollIntervalMs }) {
+async function waitForIngestionJob({ baseUrl, universeId, jobId, timeoutMs, pollIntervalMs, owned = true }) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     const payload = await getJson(
@@ -127,7 +132,7 @@ async function waitForIngestionJob({ baseUrl, universeId, jobId, timeoutMs, poll
     if (job && TERMINAL_INGESTION_STATUSES.has(job.status)) return job;
     await delay(pollIntervalMs);
   }
-  await postJson(
+  if (owned) await postJson(
     baseUrl,
     `/api/v1/ingestion/jobs/${encodeURIComponent(jobId)}/control`,
     { action: 'stop', reason: 'QuantPilot market maintenance timed out.' },
@@ -141,8 +146,10 @@ async function runMaintenance(options = {}) {
   const baseUrl = process.env.QUANTPILOT_MARKET_API_URL?.trim() || 'http://127.0.0.1:8000';
   const universeId = process.env.QUANTPILOT_MARKET_MAINTENANCE_UNIVERSE_ID?.trim()
     || 'a-share-sample-research-pool';
-  const calendarLookbackDays = positiveInteger('QUANTPILOT_MARKET_CALENDAR_LOOKBACK_DAYS', 30);
-  const historyLookbackDays = positiveInteger('QUANTPILOT_MARKET_HISTORY_LOOKBACK_DAYS', 14);
+  const calendarLookbackDays = positiveInteger('QUANTPILOT_MARKET_CALENDAR_LOOKBACK_DAYS', 30, { max: 366 });
+  const historyLookbackDays = positiveInteger('QUANTPILOT_MARKET_HISTORY_LOOKBACK_DAYS', 14, { max: 366 });
+  const maxSymbols = positiveInteger('QUANTPILOT_MARKET_MAINTENANCE_MAX_SYMBOLS', 300, { max: 10_000 });
+  const batchSize = Math.min(maxSymbols, positiveInteger('QUANTPILOT_MARKET_MAINTENANCE_BATCH_SIZE', 25, { max: 200 }));
   const requestDelaySeconds = nonNegativeNumber(
     'QUANTPILOT_MARKET_MAINTENANCE_REQUEST_DELAY_SECONDS',
     0.2,
@@ -169,15 +176,30 @@ async function runMaintenance(options = {}) {
     allow_fallback: false,
     request_delay_seconds: requestDelaySeconds,
     batch_delay_seconds: batchDelaySeconds,
-    batch_size: positiveInteger('QUANTPILOT_MARKET_MAINTENANCE_BATCH_SIZE', 25, { max: 200 }),
+    batch_size: batchSize,
+    // Floor keeps the write bound intact even if membership changes after preflight.
+    max_batches: Math.floor(maxSymbols / batchSize),
     max_retries: positiveInteger('QUANTPILOT_MARKET_MAINTENANCE_MAX_RETRIES', 3, { max: 10 }),
     include_valuation_factors: false,
   };
 
+  let scope = null;
+  if (!options.calendarOnly) {
+    const members = await getJson(baseUrl,
+      `/api/v1/research/universes/${encodeURIComponent(universeId)}/members?page_size=1`, 30_000);
+    const total = members.total;
+    const symbolBound = historyBody.max_batches * batchSize;
+    if (!Number.isSafeInteger(total) || total < 1 || total > symbolBound) {
+      throw new Error(`Universe scope is invalid or exceeds the bounded plan: total=${total}, limit=${symbolBound}.`);
+    }
+    scope = { universeId, totalSymbols: total, maxSymbols: symbolBound, maxRows: symbolBound * historyBody.limit };
+  }
+  const plan = { baseUrl, calendarBody, historyBody: options.calendarOnly ? null : historyBody, scope };
   if (options.dryRun) {
-    return { dryRun: true, baseUrl, calendarBody, historyBody };
+    return { dryRun: true, ...plan };
   }
 
+  console.log(`[market-maintenance] plan=${JSON.stringify(plan)}`);
   console.log(`[market-maintenance] refreshing calendar ${calendarBody.start}..${calendarBody.end}`);
   const calendar = await postJson(
     baseUrl,
@@ -213,6 +235,13 @@ async function runMaintenance(options = {}) {
       : null;
     let jobId;
     if (activeJob) {
+      const metadata = activeJob.metadata || {};
+      if (metadata.start !== historyBody.start || metadata.end !== historyBody.end
+        || activeJob.timeframe !== historyBody.period || activeJob.adjustment !== historyBody.adjustment
+        || metadata.max_batches !== historyBody.max_batches || metadata.batch_size !== batchSize
+        || Number(activeJob.total_symbols) > scope.maxSymbols) {
+        throw new Error('An active ingestion job has a different scope; wait for it to finish before maintenance.');
+      }
       jobId = activeJob.id;
       console.log(`[market-maintenance] resuming observation of active Baostock job=${jobId}`);
     } else {
@@ -234,10 +263,12 @@ async function runMaintenance(options = {}) {
       jobId,
       timeoutMs: ingestionTimeoutMs,
       pollIntervalMs,
+      owned: !activeJob,
     });
-    if (ingestion.status === 'failed' || Number(ingestion.completed_symbols ?? 0) === 0) {
+    if (ingestion.status !== 'completed' || Number(ingestion.completed_symbols ?? 0) === 0
+      || Number(ingestion.failed_symbols ?? 0) > 0) {
       throw new Error(
-        `Daily ingestion produced no usable symbols: status=${ingestion.status}, failed=${ingestion.failed_symbols ?? '-'}`,
+        `Daily ingestion did not complete its bounded scope: status=${ingestion.status}, failed=${ingestion.failed_symbols ?? '-'}`,
       );
     }
     console.log(
@@ -256,7 +287,7 @@ async function runMaintenance(options = {}) {
     if (gate.status !== 0) throw new Error(`Market freshness gate exited with ${gate.status}.`);
   }
 
-  return { dryRun: false, baseUrl, calendar, ingestion };
+  return { dryRun: false, ...plan, calendar, ingestion };
 }
 
 async function main() {
