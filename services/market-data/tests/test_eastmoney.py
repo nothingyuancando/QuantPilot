@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 
@@ -17,6 +18,7 @@ from quantpilot_market_data.providers.eastmoney import (
     EastMoneyClient,
     infer_asset_type,
     normalize_secid,
+    normalize_single_quote_item,
     parse_a_share_list_payload,
     parse_announcements_payload,
     parse_dividend_events_payload,
@@ -26,6 +28,7 @@ from quantpilot_market_data.providers.eastmoney import (
     parse_quote_payload,
     parse_symbol_suggest_payload,
     parse_tencent_kline_payload,
+    parse_tencent_realtime_quote_item,
 )
 
 
@@ -133,6 +136,142 @@ def test_parse_quote_payload_treats_invalid_numeric_fields_as_missing() -> None:
     assert quote.price is None
     assert quote.volume is None
     assert quote.quote_time is None
+
+
+def test_normalize_single_quote_item_maps_stock_get_fields() -> None:
+    item = normalize_single_quote_item(
+        "1.600519",
+        {
+            "rc": 0,
+            "data": {
+                "f43": 1258.62,
+                "f44": 1268.0,
+                "f45": 1236.05,
+                "f46": 1239.53,
+                "f47": 38331,
+                "f48": 4797246636.0,
+                "f57": "600519",
+                "f58": "贵州茅台",
+                "f60": 1259.58,
+                "f124": 1791374400,
+                "f169": -0.96,
+                "f170": -0.08,
+                "f171": 2.54,
+            },
+        },
+    )
+
+    quote = parse_quote_payload("1.600519", {"rc": 0, "data": {"diff": [item]}})
+    assert quote.price == Decimal("1258.62")
+    assert quote.previous_close == Decimal("1259.58")
+    assert quote.change_percent == Decimal("-0.08")
+    assert quote.symbol == "600519"
+    assert quote.market == "SH"
+
+
+def test_realtime_quote_falls_back_to_stock_get_when_batch_endpoint_fails(
+    monkeypatch,
+) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/qt/ulist.np/get":
+            return httpx.Response(503, request=request)
+        assert request.url.path == "/api/qt/stock/get"
+        assert request.url.params["secid"] == "1.600519"
+        return httpx.Response(
+            200,
+            request=request,
+            json={
+                "rc": 0,
+                "data": {
+                    "f43": 1258.62,
+                    "f57": "600519",
+                    "f58": "贵州茅台",
+                    "f60": 1259.58,
+                    "f124": 1791374400,
+                },
+            },
+        )
+
+    client = EastMoneyClient()
+
+    def create_http_client():
+        return httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+    monkeypatch.setattr(client, "_create_http_client", create_http_client)
+
+    quote = asyncio.run(client.get_realtime_quote("600519"))
+    assert quote.price == Decimal("1258.62")
+    assert quote.name == "贵州茅台"
+
+
+def test_parse_tencent_realtime_quote_item() -> None:
+    fields = [""] * 47
+    values = {
+        1: "贵州茅台",
+        2: "600519",
+        3: "1258.62",
+        4: "1235.58",
+        5: "1239.53",
+        6: "38331",
+        30: "20260930161458",
+        31: "23.04",
+        32: "1.86",
+        33: "1268.00",
+        34: "1236.05",
+        35: "1258.62/38331/4797246636",
+        38: "0.31",
+        39: "19.32",
+        43: "2.59",
+        44: "15733.78",
+        45: "15733.78",
+        46: "6.26",
+    }
+    for index, value in values.items():
+        fields[index] = value
+    content = f'v_sh600519="{"~".join(fields)}";'.encode("gb18030")
+
+    item = parse_tencent_realtime_quote_item("1.600519", content)
+    quote = parse_quote_payload("1.600519", {"rc": 0, "data": {"diff": [item]}})
+
+    assert quote.source == "tencent"
+    assert quote.name == "贵州茅台"
+    assert quote.price == Decimal("1258.62")
+    assert quote.amount == Decimal("4797246636")
+    assert quote.market_cap == Decimal("1573378000000.00")
+    assert quote.quote_time == datetime(2026, 9, 30, 8, 14, 58, tzinfo=UTC)
+
+
+def test_realtime_quote_falls_back_to_tencent_when_eastmoney_fails(monkeypatch) -> None:
+    fields = [""] * 47
+    for index, value in {
+        1: "贵州茅台",
+        2: "600519",
+        3: "1258.62",
+        4: "1235.58",
+        5: "1239.53",
+        6: "38331",
+        30: "20260930161458",
+        35: "1258.62/38331/4797246636",
+    }.items():
+        fields[index] = value
+    tencent_content = f'v_sh600519="{"~".join(fields)}";'.encode("gb18030")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host in {"push2.eastmoney.com", "push2delay.eastmoney.com"}:
+            return httpx.Response(503, request=request)
+        assert str(request.url) == "https://qt.gtimg.cn/q=sh600519"
+        return httpx.Response(200, request=request, content=tencent_content)
+
+    client = EastMoneyClient()
+
+    def create_http_client():
+        return httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+    monkeypatch.setattr(client, "_create_http_client", create_http_client)
+
+    quote = asyncio.run(client.get_realtime_quote("600519"))
+    assert quote.source == "tencent"
+    assert quote.price == Decimal("1258.62")
 
 
 def test_infer_asset_type_for_index_and_etf() -> None:

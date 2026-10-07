@@ -138,6 +138,7 @@ interface PreviewProcess {
   startedAt: Date;
   projectPath: string;
   startOperationId?: symbol;
+  startupError?: string;
 }
 
 interface PreviewNetworkProxy {
@@ -1156,6 +1157,47 @@ async function appendCommandLogs(
   });
 }
 
+async function ensureProductionBuild(
+  projectPath: string,
+  env: NodeJS.ProcessEnv,
+  logger: (chunk: Buffer | string) => void,
+): Promise<void> {
+  const buildIdPath = path.join(projectPath, '.next', 'BUILD_ID');
+  if (await fileExists(buildIdPath)) {
+    return;
+  }
+
+  logger('[PreviewManager] Production build missing; running npm run build before preview start.');
+  const sandboxed = await wrapGeneratedProjectCommand(
+    projectPath,
+    npmCommand,
+    ['run', 'build', '--', '--webpack'],
+  );
+  await appendCommandLogs(
+    sandboxed.command,
+    sandboxed.args,
+    projectPath,
+    {
+      ...env,
+      NODE_ENV: 'production',
+      NEXT_PRIVATE_BUILD_WORKER: '1',
+    },
+    logger,
+  );
+
+  if (!(await fileExists(buildIdPath))) {
+    throw new Error('Preview production build completed without creating .next/BUILD_ID.');
+  }
+}
+
+function previewStartupFatalError(chunk: Buffer | string): string | null {
+  const output = chunk.toString();
+  if (/\bEROFS\b|read-only file system/i.test(output)) {
+    return 'Preview startup failed because the generated runtime attempted to write outside its writable build directory (EROFS).';
+  }
+  return null;
+}
+
 async function ensureDependencies(
   projectPath: string,
   env: NodeJS.ProcessEnv,
@@ -1730,6 +1772,9 @@ export class PreviewManager {
     await ensureWithLock();
     this.assertStartActive(projectId, operation);
 
+    await ensureProductionBuild(projectPath, env, log);
+    this.assertStartActive(projectId, operation);
+
     const overrides = await collectEnvOverrides(projectPath);
     this.assertStartActive(projectId, operation);
 
@@ -1788,7 +1833,7 @@ export class PreviewManager {
     const sandboxed = await wrapGeneratedProjectCommand(
       projectPath,
       npmCommand,
-      ['run', 'dev', '--', '--port', String(effectivePort)],
+      ['run', 'start', '--', '--port', String(effectivePort)],
     );
     const child = spawn(
       sandboxed.command,
@@ -1804,13 +1849,18 @@ export class PreviewManager {
 
     previewProcess.process = child;
 
-    child.stdout?.on('data', (chunk) => {
+    const recordProcessOutput = (chunk: Buffer | string) => {
       log(chunk);
-    });
+      const fatalError = previewStartupFatalError(chunk);
+      if (fatalError && !previewProcess.startupError) {
+        previewProcess.startupError = fatalError;
+        previewProcess.status = 'error';
+        log(Buffer.from(`[PreviewManager] ${fatalError}`));
+      }
+    };
 
-    child.stderr?.on('data', (chunk) => {
-      log(chunk);
-    });
+    child.stdout?.on('data', recordProcessOutput);
+    child.stderr?.on('data', recordProcessOutput);
 
     child.on('exit', (code, signal) => {
       previewProcess.status = code === 0 ? 'stopped' : 'error';
@@ -1880,6 +1930,7 @@ export class PreviewManager {
       });
       this.assertStartActive(projectId, operation);
     } else {
+      const startupError = previewProcess.startupError;
       previewProcess.status = 'error';
       await terminatePreviewProcess(previewProcess);
       this.processes.delete(projectId);
@@ -1888,6 +1939,9 @@ export class PreviewManager {
         previewPort: null,
       });
       await updateProjectStatus(projectId, 'idle');
+      if (startupError) {
+        throw new Error(startupError);
+      }
       throw new Error(`Preview server did not become ready within ${PREVIEW_CONFIG.STARTUP_TIMEOUT}ms.`);
     }
 

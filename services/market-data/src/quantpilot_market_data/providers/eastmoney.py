@@ -26,11 +26,13 @@ from quantpilot_market_data.contracts.quotes import (
 from quantpilot_market_data.providers.base import ProviderCapability
 
 EASTMONEY_REALTIME_QUOTE_PATH = "/api/qt/ulist.np/get"
+EASTMONEY_SINGLE_QUOTE_PATH = "/api/qt/stock/get"
 EASTMONEY_KLINE_PATH = "/api/qt/stock/kline/get"
 EASTMONEY_A_SHARE_LIST_PATH = "/api/qt/clist/get"
 EASTMONEY_SEARCH_URL = "https://searchapi.eastmoney.com/api/suggest/get"
 EASTMONEY_ANNOUNCEMENT_URL = "https://np-anotice-stock.eastmoney.com/api/security/ann"
 EASTMONEY_DATACENTER_URL = "https://datacenter-web.eastmoney.com/api/data/v1/get"
+TENCENT_REALTIME_QUOTE_URL = "https://qt.gtimg.cn/q="
 TENCENT_KLINE_URL = "https://web.ifzq.gtimg.cn/appstock/app/fqkline/get"
 DEFAULT_EASTMONEY_BASE_URLS = (
     "https://push2.eastmoney.com",
@@ -131,6 +133,30 @@ QUOTE_FIELDS = ",".join(
         "f102",  # 地域
         "f103",  # 概念
         "f124",  # 行情时间，Unix 秒
+    ]
+)
+
+SINGLE_QUOTE_FIELDS = ",".join(
+    [
+        "f43",  # 最新价
+        "f44",  # 最高价
+        "f45",  # 最低价
+        "f46",  # 开盘价
+        "f47",  # 成交量
+        "f48",  # 成交额
+        "f57",  # 代码
+        "f58",  # 名称
+        "f60",  # 昨收
+        "f116",  # 总市值
+        "f117",  # 流通市值
+        "f124",  # 行情时间，Unix 秒
+        "f127",  # 行业
+        "f162",  # 市盈率
+        "f167",  # 市净率
+        "f168",  # 换手率
+        "f169",  # 涨跌额
+        "f170",  # 涨跌幅
+        "f171",  # 振幅
     ]
 )
 
@@ -449,8 +475,26 @@ class EastMoneyClient:
                     return response.json()
                 except httpx.HTTPError as error:
                     errors.append(f"{base_url}: {error}")
+
+            fallback_items: list[dict[str, Any]] = []
+            fallback_errors: list[str] = []
+            for secid in secids:
+                try:
+                    fallback_items.append(
+                        await self._request_single_quote_item(secid, client=active_client)
+                    )
+                except EastMoneyError as error:
+                    fallback_errors.append(str(error))
+
+            if fallback_items and not fallback_errors:
+                return {
+                    "rc": 0,
+                    "data": {"total": len(fallback_items), "diff": fallback_items},
+                }
+
             try:
-                raise EastMoneyError("；".join(errors))
+                details = [*errors, *fallback_errors]
+                raise EastMoneyError("；".join(details))
             except EastMoneyError as error:
                 raise EastMoneyError(f"东方财富行情请求失败：{error}") from error
 
@@ -459,6 +503,49 @@ class EastMoneyClient:
 
         async with self._create_http_client() as active_client:
             return await request(active_client)
+
+    async def _request_single_quote_item(
+        self,
+        secid: str,
+        *,
+        client: httpx.AsyncClient,
+    ) -> dict[str, Any]:
+        params = {
+            "secid": secid,
+            "fields": SINGLE_QUOTE_FIELDS,
+            "fltt": "2",
+            "invt": "2",
+        }
+        errors: list[str] = []
+        for base_url in self.config.base_urls:
+            quote_url = f"{base_url.rstrip('/')}{EASTMONEY_SINGLE_QUOTE_PATH}"
+            try:
+                response = await client.get(quote_url, params=params)
+                response.raise_for_status()
+                return normalize_single_quote_item(secid, response.json())
+            except (httpx.HTTPError, EastMoneyError, ValueError) as error:
+                errors.append(f"{base_url}: {error}")
+        try:
+            return await self._request_tencent_quote_item(secid, client=client)
+        except (httpx.HTTPError, EastMoneyError, ValueError) as error:
+            errors.append(f"腾讯行情: {error}")
+        raise EastMoneyError(f"单股行情降级失败（{secid}）：{'；'.join(errors)}")
+
+    async def _request_tencent_quote_item(
+        self,
+        secid: str,
+        *,
+        client: httpx.AsyncClient,
+    ) -> dict[str, Any]:
+        market = market_from_secid(secid)
+        symbol = secid.split(".", 1)[1]
+        prefix = {"SH": "sh", "SZ": "sz", "BJ": "bj"}.get(market)
+        if prefix is None:
+            raise EastMoneyError(f"腾讯行情不支持未知市场：{secid}")
+
+        response = await client.get(f"{TENCENT_REALTIME_QUOTE_URL}{prefix}{symbol}")
+        response.raise_for_status()
+        return parse_tencent_realtime_quote_item(secid, response.content)
 
     def _create_http_client(self, *, trust_env: bool = True) -> httpx.AsyncClient:
         return httpx.AsyncClient(
@@ -1094,6 +1181,90 @@ def parse_quote_payload(secid: str, payload: dict[str, Any]) -> RealtimeQuote:
     return quotes[0]
 
 
+def normalize_single_quote_item(secid: str, payload: dict[str, Any]) -> dict[str, Any]:
+    """Map stock/get fields into the existing ulist quote item contract."""
+
+    rc = payload.get("rc")
+    if rc != 0:
+        raise EastMoneyError(f"东方财富单股接口返回异常 rc={rc}: {payload}")
+
+    data = payload.get("data")
+    if not isinstance(data, dict):
+        raise EastMoneyError(f"东方财富单股接口未返回行情数据：{payload}")
+
+    market_id, requested_symbol = secid.split(".", 1)
+    return {
+        "f2": data.get("f43"),
+        "f3": data.get("f170"),
+        "f4": data.get("f169"),
+        "f5": data.get("f47"),
+        "f6": data.get("f48"),
+        "f7": data.get("f171"),
+        "f8": data.get("f168"),
+        "f9": data.get("f162"),
+        "f12": data.get("f57") or requested_symbol,
+        "f13": int(market_id),
+        "f14": data.get("f58"),
+        "f15": data.get("f44"),
+        "f16": data.get("f45"),
+        "f17": data.get("f46"),
+        "f18": data.get("f60"),
+        "f20": data.get("f116"),
+        "f21": data.get("f117"),
+        "f23": data.get("f167"),
+        "f100": data.get("f127"),
+        "f124": data.get("f124"),
+    }
+
+
+def parse_tencent_realtime_quote_item(secid: str, content: bytes) -> dict[str, Any]:
+    """Map Tencent's tilde-delimited quote response into the common quote item contract."""
+
+    text = content.decode("gb18030").strip()
+    if '="' not in text:
+        raise EastMoneyError(f"腾讯行情返回格式异常：{text[:120]}")
+    body = text.split('="', 1)[1].rsplit('"', 1)[0]
+    fields = body.split("~")
+    if len(fields) < 47 or not fields[2]:
+        raise EastMoneyError(f"腾讯行情未返回有效数据：{text[:120]}")
+
+    amount = None
+    composite = fields[35].split("/")
+    if len(composite) >= 3:
+        amount = composite[2]
+
+    quote_timestamp = None
+    if len(fields[30]) == 14 and fields[30].isdigit():
+        quote_time = datetime.strptime(fields[30], "%Y%m%d%H%M%S").replace(
+            tzinfo=ZoneInfo("Asia/Shanghai")
+        )
+        quote_timestamp = int(quote_time.timestamp())
+
+    market_id = int(secid.split(".", 1)[0])
+    return {
+        "_source": "tencent",
+        "f2": fields[3],
+        "f3": fields[32],
+        "f4": fields[31],
+        "f5": fields[6],
+        "f6": amount,
+        "f7": fields[43],
+        "f8": fields[38],
+        "f9": fields[39],
+        "f12": fields[2],
+        "f13": market_id,
+        "f14": fields[1],
+        "f15": fields[33],
+        "f16": fields[34],
+        "f17": fields[5],
+        "f18": fields[4],
+        "f20": _scale_decimal_text(fields[44], 100_000_000),
+        "f21": _scale_decimal_text(fields[45], 100_000_000),
+        "f23": fields[46],
+        "f124": quote_timestamp,
+    }
+
+
 def parse_quote_item(secid: str, data: dict[str, Any]) -> RealtimeQuote:
     symbol = str(data.get("f12") or secid.split(".", 1)[-1])
     quote_time = _timestamp_to_datetime(data.get("f124"))
@@ -1104,6 +1275,7 @@ def parse_quote_item(secid: str, data: dict[str, Any]) -> RealtimeQuote:
         name=_empty_to_none(data.get("f14")),
         asset_type=asset_type_from_payload(secid, data),
         market=market_from_payload(secid, data),
+        source=str(data.get("_source") or "eastmoney"),
         price=_to_decimal(data.get("f2")),
         high=_to_decimal(data.get("f15")),
         low=_to_decimal(data.get("f16")),
@@ -1125,6 +1297,13 @@ def parse_quote_item(secid: str, data: dict[str, Any]) -> RealtimeQuote:
         quote_time=quote_time,
         fetched_at=datetime.now(UTC),
     )
+
+
+def _scale_decimal_text(value: Any, multiplier: int) -> str | None:
+    decimal_value = _to_decimal(value)
+    if decimal_value is None:
+        return None
+    return str(decimal_value * multiplier)
 
 
 def _empty_to_none(value: Any) -> str | None:

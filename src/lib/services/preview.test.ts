@@ -176,6 +176,12 @@ describe('PreviewManager start concurrency', () => {
           isFile: () => false,
         };
       }
+      if (String(filePath).endsWith('/.next/BUILD_ID')) {
+        return {
+          isDirectory: () => false,
+          isFile: () => true,
+        };
+      }
       throw missingFile();
     });
   });
@@ -214,8 +220,83 @@ describe('PreviewManager start concurrency', () => {
     );
     expect(mocks.getProjectById).toHaveBeenCalledTimes(1);
     expect(mocks.spawn).toHaveBeenCalledTimes(1);
+    expect(mocks.spawn).toHaveBeenCalledWith(
+      'npm',
+      ['run', 'start', '--', '--port', String(previewTestPort)],
+      expect.objectContaining({ cwd: '/tmp/quantpilot-preview-test' }),
+    );
     expect(fetchMock).toHaveBeenCalledTimes(1);
     await manager.stop('project-preview');
+  });
+
+  it('creates a production build before starting a persistent preview', async () => {
+    let buildExists = false;
+    fsMocks.stat.mockImplementation(async (filePath: unknown) => {
+      const normalized = String(filePath);
+      if (normalized.endsWith('node_modules')) {
+        return {
+          isDirectory: () => true,
+          isFile: () => false,
+        };
+      }
+      if (normalized.endsWith('/.next/BUILD_ID') && buildExists) {
+        return {
+          isDirectory: () => false,
+          isFile: () => true,
+        };
+      }
+      throw missingFile();
+    });
+    mocks.spawn.mockImplementation((_command: string, args: string[]) => {
+      const child = createFakeChild();
+      if (args.includes('build')) {
+        queueMicrotask(() => {
+          buildExists = true;
+          child.emit('close', 0);
+        });
+      }
+      return child;
+    });
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, status: 200 }));
+
+    const manager = new PreviewManager();
+    await expect(manager.start('project-preview')).resolves.toMatchObject({
+      status: 'running',
+    });
+
+    expect(mocks.spawn).toHaveBeenNthCalledWith(
+      1,
+      'npm',
+      ['run', 'build', '--', '--webpack'],
+      expect.objectContaining({ cwd: '/tmp/quantpilot-preview-test' }),
+    );
+    expect(mocks.spawn).toHaveBeenNthCalledWith(
+      2,
+      'npm',
+      ['run', 'start', '--', '--port', String(previewTestPort)],
+      expect.objectContaining({ cwd: '/tmp/quantpilot-preview-test' }),
+    );
+    await manager.stop('project-preview');
+  });
+
+  it('fails immediately when a preview attempts a read-only workspace write', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('not ready')));
+    mocks.spawn.mockImplementation(() => {
+      const child = createFakeChild();
+      queueMicrotask(() => {
+        child.stderr.emit(
+          'data',
+          Buffer.from("EROFS: read-only file system, open '/workspace/next-env.d.ts'"),
+        );
+      });
+      return child;
+    });
+
+    const manager = new PreviewManager();
+    await expect(manager.start('project-preview')).rejects.toThrow(
+      'attempted to write outside its writable build directory',
+    );
+    expect(manager.getStatus('project-preview').status).toBe('stopped');
   });
 
   it('lets a trusted unsandboxed preview bind the selected TCP port directly', async () => {
