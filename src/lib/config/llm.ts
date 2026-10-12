@@ -6,6 +6,7 @@ import {
   LOCAL_QWEN_MODEL_ID,
   MODELPORT_DEEPSEEK_MODEL_ID,
   PI_AGENT_DEFAULT_MODEL,
+  isOfficialDeepSeekModelId,
   normalizePiAgentModelId,
   type PiAgentModelId,
 } from '@/lib/constants/models';
@@ -15,7 +16,7 @@ export interface ProjectLlmConfig {
   profileId: string;
   provider: 'deepseek' | 'openai';
   model: PiAgentModelId;
-  baseUrl: typeof DEEPSEEK_OFFICIAL_BASE_URL | typeof LOCAL_OPENAI_BASE_URL;
+  baseUrl: string;
   credentialEnv: 'DEEPSEEK_API_KEY' | 'MODELPORT_API_KEY';
   agent: {
     enabled: boolean;
@@ -90,9 +91,19 @@ function configuredProfile(requestedModel?: string | null): JsonRecord {
     : normalizePiAgentModelId(configuredDefault);
   const profiles = asRecord(root?.profiles);
   const profile = asRecord(profiles?.[profileId]);
+  if (!profile && isOfficialDeepSeekModelId(profileId)) {
+    const officialTemplate = asRecord(profiles?.[DEEPSEEK_MODEL_ID]);
+    if (!officialTemplate) throw new Error(`LLM profile is missing: ${DEEPSEEK_MODEL_ID}`);
+    return {
+      ...officialTemplate,
+      profileId,
+      model: profileId,
+    };
+  }
   if (!profile) throw new Error(`LLM profile is missing: ${profileId}`);
-  const locked = LOCKED_PROFILES[profileId];
+  const locked = LOCKED_PROFILES[profileId as keyof typeof LOCKED_PROFILES];
   if (
+    !locked ||
     profile.provider !== locked.provider ||
     profile.model !== locked.model ||
     profile.baseUrl !== locked.baseUrl ||
@@ -119,7 +130,7 @@ export function getProjectLlmConfig(requestedModel?: string | null): ProjectLlmC
     profileId: String(profile.profileId),
     provider: profile.provider as ProjectLlmConfig['provider'],
     model: profile.model as PiAgentModelId,
-    baseUrl: profile.baseUrl as ProjectLlmConfig['baseUrl'],
+    baseUrl: String(profile.baseUrl),
     credentialEnv: profile.credentialEnv as ProjectLlmConfig['credentialEnv'],
     agent: {
       enabled: envFlag(

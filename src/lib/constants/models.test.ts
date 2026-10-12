@@ -20,6 +20,7 @@ describe('PI Agent model registry', () => {
     ]);
     expect(normalizePiAgentModelId('deepseek')).toBe(MODELPORT_DEEPSEEK_MODEL_ID);
     expect(normalizePiAgentModelId('deepseek-v4-flash')).toBe(DEEPSEEK_MODEL_ID);
+    expect(normalizePiAgentModelId('deepseek-v4-pro')).toBe('deepseek-v4-pro');
   });
 
   it('falls back safely for unregistered client-supplied model IDs', () => {

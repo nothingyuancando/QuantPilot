@@ -51,6 +51,7 @@ export async function fetchCliStatusSnapshot(): Promise<CLIStatus> {
         available: entry.available === true,
         configured: entry.configured === true,
         models: Array.isArray(entry.models) ? entry.models : [],
+        modelDefinitions: Array.isArray(entry.modelDefinitions) ? entry.modelDefinitions : [],
         error: entry.error || (entry.available === true ? undefined : statuses[option.id].error),
       };
     }

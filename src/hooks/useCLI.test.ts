@@ -16,8 +16,16 @@ describe('model status failures', () => {
     expect((await fetchCliStatusSnapshot()).pi.available).toBe(false);
   });
   it('clears the unknown-state message when a fresh check succeeds', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json({ pi: { installed: true, available: true, configured: true, models: ['direct'] } })));
-    expect((await fetchCliStatusSnapshot()).pi.error).toBeUndefined();
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json({ pi: {
+      installed: true,
+      available: true,
+      configured: true,
+      models: ['deepseek-flash'],
+      modelDefinitions: [{ id: 'deepseek-flash', name: 'DeepSeek-V4.1-Flash' }],
+    } })));
+    const status = (await fetchCliStatusSnapshot()).pi;
+    expect(status.error).toBeUndefined();
+    expect(status.modelDefinitions).toEqual([{ id: 'deepseek-flash', name: 'DeepSeek-V4.1-Flash' }]);
   });
   it('checks the selected model instead of any available model', () => {
     const entry = { installed: true, checking: false, available: true, models: ['direct'] };

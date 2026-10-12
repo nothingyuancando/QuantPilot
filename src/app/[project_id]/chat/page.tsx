@@ -33,10 +33,10 @@ import { ThemeToggle } from '@/components/ui/theme-toggle';
 import { useUserRequests } from '@/hooks/useUserRequests';
 import { useGlobalSettings } from '@/contexts/GlobalSettingsContext';
 import { getDefaultModelForCli, getModelDisplayName } from '@/lib/constants/models';
+import { fetchCliStatusSnapshot } from '@/hooks/useCLI';
 import {
   ACTIVE_CLI_BRAND_COLORS,
   ACTIVE_CLI_IDS,
-  ACTIVE_CLI_MODEL_OPTIONS,
   ACTIVE_CLI_NAME_MAP,
   DEFAULT_ACTIVE_CLI,
   buildActiveModelOptions,
@@ -99,6 +99,11 @@ type CliStatusSnapshot = {
   available?: boolean;
   configured?: boolean;
   models?: string[];
+  modelDefinitions?: Array<{
+    id: string;
+    name: string;
+    supportsImages?: boolean;
+  }>;
 };
 
 type ModelOption = Omit<ActiveModelOption, 'cli'> & { cli: string; supportsImages?: boolean };
@@ -339,17 +344,9 @@ function ChatWorkspace({ projectId }: { projectId: string }) {
     }, 300);
   }, [searchParams, sendInitialPrompt, preferredCli]);
 
-const loadCliStatuses = useCallback(() => {
-  const snapshot: Record<string, CliStatusSnapshot> = {};
-  ACTIVE_CLI_IDS.forEach(id => {
-    const models = ACTIVE_CLI_MODEL_OPTIONS[id]?.map(model => model.id) ?? [];
-    snapshot[id] = {
-      available: true,
-      configured: true,
-      models,
-    };
-  });
-  setCliStatuses(snapshot);
+const loadCliStatuses = useCallback(async () => {
+  const status = await fetchCliStatusSnapshot();
+  setCliStatuses(status);
 }, []);
 
 const persistProjectPreferences = useCallback(
@@ -492,7 +489,9 @@ const persistProjectPreferences = useCallback(
 
   useEffect(() => {
     if (!modelOptions.length) return;
-    const hasSelected = modelOptions.some(option => option.cli === preferredCli && option.id === selectedModel);
+    const hasSelected = modelOptions.some(
+      option => option.cli === preferredCli && option.id === selectedModel && option.available,
+    );
     if (!hasSelected) {
       const fallbackOption = modelOptions.find(option => option.cli === preferredCli && option.available)
         || modelOptions.find(option => option.cli === preferredCli)

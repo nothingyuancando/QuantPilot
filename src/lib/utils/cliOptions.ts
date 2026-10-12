@@ -74,6 +74,11 @@ export interface ModelAvailabilityEntry {
   available?: boolean;
   configured?: boolean;
   models?: string[];
+  modelDefinitions?: Array<{
+    id: string;
+    name: string;
+    supportsImages?: boolean;
+  }>;
 }
 
 export interface ActiveModelOption {
@@ -93,7 +98,11 @@ export const buildActiveModelOptions = (statuses: Record<string, ModelAvailabili
     const availableModels = new Set((status?.models ?? []).map(modelId => normalizeModelId(id, modelId)));
     const baseAvailability = Boolean(status?.available ?? status?.configured ?? true);
 
-    getModelDefinitionsForCli(id).forEach(definition => {
+    const definitions = status?.modelDefinitions?.length
+      ? status.modelDefinitions
+      : getModelDefinitionsForCli(id);
+
+    definitions.forEach(definition => {
       const normalizedId = normalizeModelId(id, definition.id);
       const isAvailable = baseAvailability && (availableModels.size === 0 || availableModels.has(normalizedId));
 

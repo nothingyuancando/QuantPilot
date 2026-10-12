@@ -4,13 +4,10 @@ export const MODELPORT_DEEPSEEK_MODEL_ID = 'deepseek:deepseek-v4-flash' as const
 export const LOCAL_QWEN_MODEL_ID = 'local_qwen:qwen3.5-9b-q5km' as const;
 export const LOCAL_OPENAI_BASE_URL = 'http://127.0.0.1:38082/v1' as const;
 
-export type PiAgentModelId =
-  | typeof DEEPSEEK_MODEL_ID
-  | typeof MODELPORT_DEEPSEEK_MODEL_ID
-  | typeof LOCAL_QWEN_MODEL_ID;
+export type PiAgentModelId = string;
 
 export interface PiAgentModelDefinition {
-  id: PiAgentModelId;
+  id: string;
   name: string;
   description: string;
   supportsImages: boolean;
@@ -53,8 +50,8 @@ export const PI_AGENT_MODEL_DEFINITIONS: PiAgentModelDefinition[] = [
   },
   {
     id: DEEPSEEK_MODEL_ID,
-    name: 'DeepSeek V4 Flash (Official Direct)',
-    description: '可选的 DeepSeek 官方 API 直连；仅在显式提供官方凭据时启用',
+    name: 'DeepSeek Official (Auto-discovered)',
+    description: '通过 DeepSeek 官方 /models 接口动态发现可用模型',
     supportsImages: false,
     provider: 'deepseek',
     runtime: 'deepseek-official',
@@ -70,6 +67,10 @@ export const PI_AGENT_MODEL_DEFINITIONS: PiAgentModelDefinition[] = [
 
 export const PI_AGENT_DEFAULT_MODEL: PiAgentModelId = LOCAL_QWEN_MODEL_ID;
 
+export function isOfficialDeepSeekModelId(model?: string | null): boolean {
+  return /^deepseek-[a-z0-9][a-z0-9._-]{0,127}$/u.test(model?.trim().toLowerCase() ?? '');
+}
+
 export function normalizePiAgentModelId(model?: string | null): PiAgentModelId {
   const normalized = model?.trim().toLowerCase();
   if (!normalized) return PI_AGENT_DEFAULT_MODEL;
@@ -77,13 +78,27 @@ export function normalizePiAgentModelId(model?: string | null): PiAgentModelId {
     definition.id.toLowerCase() === normalized ||
     definition.aliases.some((alias) => alias.toLowerCase() === normalized),
   );
-  return match?.id ?? PI_AGENT_DEFAULT_MODEL;
+  if (match) return match.id;
+  return isOfficialDeepSeekModelId(normalized) ? normalized : PI_AGENT_DEFAULT_MODEL;
 }
 
 export function getPiAgentModelDefinition(id?: string | null): PiAgentModelDefinition {
   const normalized = normalizePiAgentModelId(id);
-  return PI_AGENT_MODEL_DEFINITIONS.find((definition) => definition.id === normalized) ??
-    PI_AGENT_MODEL_DEFINITIONS[0];
+  const definition = PI_AGENT_MODEL_DEFINITIONS.find((candidate) => candidate.id === normalized);
+  if (definition) return definition;
+  if (isOfficialDeepSeekModelId(normalized)) {
+    return {
+      id: normalized,
+      name: normalized,
+      description: 'DeepSeek 官方 API 动态发现的模型',
+      supportsImages: false,
+      provider: 'deepseek',
+      runtime: 'deepseek-official',
+      external: false,
+      aliases: [normalized],
+    };
+  }
+  return PI_AGENT_MODEL_DEFINITIONS[0];
 }
 
 export function getPiAgentModelDisplayName(id?: string | null): string {

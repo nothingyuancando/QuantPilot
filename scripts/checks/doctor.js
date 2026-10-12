@@ -236,10 +236,10 @@ async function main() {
   addCheck(
     'DeepSeek 官方 API',
     deepSeekApiKey ? 'ok' : 'warn',
-    deepSeekApiKey ? 'deepseek-v4-flash · 官方直连 · API Key 已配置' : 'DEEPSEEK_API_KEY 未配置。',
+    deepSeekApiKey ? '官方模型目录 · 直连 · API Key 已配置' : 'DEEPSEEK_API_KEY 未配置。',
     [
       deepSeekApiKey ? null : '可选官方直连未配置；日常 DeepSeek 应通过 ModelPort 使用。',
-      '可选模型固定为 deepseek-v4-flash，Base URL 固定为 https://api.deepseek.com。',
+      '可选模型从 https://api.deepseek.com/models 动态获取。',
     ]
   );
 

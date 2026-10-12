@@ -8,8 +8,9 @@ async function main() {
     if (!fs.existsSync(file)) throw new Error('PI Agent runtime files are incomplete.');
   }
   const result = await checkModelAvailability();
+  const names = new Map(result.modelDefinitions?.map(model => [model.id, model.name]));
   for (const model of result.modelChecks ?? []) {
-    console.log(`[${model.status}] ${getPiAgentModelDisplayName(model.id)}: ${model.message}`);
+    console.log(`[${model.status}] ${names.get(model.id) ?? getPiAgentModelDisplayName(model.id)}: ${model.message}`);
   }
   if (!result.models?.includes(PI_AGENT_DEFAULT_MODEL) && result.available) {
     console.log('默认 Qwen 未就绪。请在首页或项目中显式选择上方通过检查的模型。');

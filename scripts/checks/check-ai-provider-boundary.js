@@ -123,7 +123,7 @@ for (const key of [
 
 const modelRegistry = read('src/lib/constants/models.ts');
 if (!modelRegistry.includes(`DEEPSEEK_MODEL_ID = '${DEEPSEEK_MODEL}'`)) {
-  fail(`模型注册表必须锁定为 ${DEEPSEEK_MODEL}`);
+  fail(`模型注册表必须使用官方当前默认模型 ${DEEPSEEK_MODEL}`);
 } else if (!modelRegistry.includes(`DEEPSEEK_OFFICIAL_BASE_URL = '${OFFICIAL_BASE_URL}'`)) {
   fail(`模型注册表必须锁定 DeepSeek 官方地址 ${OFFICIAL_BASE_URL}`);
 } else if (!modelRegistry.includes(`LOCAL_QWEN_MODEL_ID = '${LOCAL_MODEL}'`)) {
@@ -134,8 +134,10 @@ if (!modelRegistry.includes(`DEEPSEEK_MODEL_ID = '${DEEPSEEK_MODEL}'`)) {
   fail(`模型注册表必须包含 ModelPort DeepSeek 模型 ${MODELPORT_DEEPSEEK_MODEL}`);
 } else if (!modelRegistry.includes('PI_AGENT_DEFAULT_MODEL: PiAgentModelId = LOCAL_QWEN_MODEL_ID')) {
   fail(`PI Agent 默认模型必须为 ${LOCAL_MODEL}`);
+} else if (!read('src/lib/platform/model-availability.ts').includes('/models')) {
+  fail('DeepSeek 官方模型必须从 /models 目录动态发现');
 } else {
-  pass('本地 Qwen 默认模型、ModelPort DeepSeek 与官方直连地址均已锁定');
+  pass('本地 Qwen 默认模型、ModelPort DeepSeek 与官方动态模型目录边界正确');
 }
 
 const requiredRuntimeFiles = [

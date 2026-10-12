@@ -106,9 +106,9 @@ Chromium 用于生成页面的视觉验收和浏览器测试。Linux 上若提�
 | 接入方式 | 配置 | 模型选择 |
 | --- | --- | --- |
 | ModelPort | `MODELPORT_API_KEY=你的受限客户端凭据` | 默认使用本地 Qwen，也可选择经 ModelPort 的 DeepSeek |
-| DeepSeek 官方直连 | `DEEPSEEK_API_KEY=你的官方凭据` | 在设置或新建项目时显式选择 `DeepSeek V4 Flash (Official Direct)` |
+| DeepSeek 官方直连 | `DEEPSEEK_API_KEY=你的官方凭据` | 系统从官方 `/models` 动态加载，再在设置或新建项目时选择 |
 
-模型目录以 [config/llm.json](config/llm.json) 为准。ModelPort 模式需要单独运行 ModelPort 和所选模型服务；本仓库的 Compose 不会安装它们。直连模式不需要 ModelPort，但填写 Key 不会自动切换已有项目的模型。
+本地与 ModelPort 基础 profile 以 [config/llm.json](config/llm.json) 为准；DeepSeek 官方直连模型从 `https://api.deepseek.com/models` 动态获取。ModelPort 模式需要单独运行 ModelPort 和所选模型服务；本仓库的 Compose 不会安装它们。直连模式不需要 ModelPort，但填写 Key 不会自动切换已有项目的模型。
 
 例如，已有 DeepSeek 官方凭据、尚未部署其他集成时，用编辑器修改 `.env.local` 中以下值；保留该文件已有的其他配置，不要把示例占位值当成真实 Key：
 
@@ -120,7 +120,7 @@ QUANTPILOT_KNOWLEDGE_ENABLED=0
 PI_AGENT_DISPATCH_MODE=worker
 ```
 
-启动后仍需在首页输入框的模型选择器中选择 **DeepSeek V4 Flash (Official Direct)**。若使用 ModelPort，保留 `QUANTPILOT_MODELPORT_ENABLED=1`，填写 `MODELPORT_API_KEY` 并选择该网关提供的模型；Memory 和 Knowledge 可独立关闭。`PI_AGENT_DISPATCH_MODE=worker` 让 `npm run dev` 同时托管研究 Worker。
+启动后在首页输入框的模型选择器中选择官方目录返回的模型。若使用 ModelPort，保留 `QUANTPILOT_MODELPORT_ENABLED=1`，填写 `MODELPORT_API_KEY` 并选择该网关提供的模型；Memory 和 Knowledge 可独立关闭。`PI_AGENT_DISPATCH_MODE=worker` 让 `npm run dev` 同时托管研究 Worker。
 
 修改配置后重启应用。Compose 默认读取 `.env`，不读取 `.env.local`；首次使用保留自动生成的数据库端口与账号即可。
 

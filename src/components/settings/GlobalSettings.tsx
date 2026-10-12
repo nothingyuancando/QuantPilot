@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { AnimatePresence } from "framer-motion";
 import { MotionDiv } from "@/lib/motion";
 import { Settings } from 'lucide-react';
@@ -116,6 +116,12 @@ export default function GlobalSettings({ isOpen, onClose, initialTab = "general"
   const [infrastructure, setInfrastructure] = useState<InfrastructureHealth | null>(null);
   const [infrastructureError, setInfrastructureError] = useState<string | null>(null);
   const [infrastructureLoading, setInfrastructureLoading] = useState(false);
+  const runtimeCliOptions = useMemo(() => CLI_OPTIONS.map((cli) => ({
+    ...cli,
+    models: cliStatus[cli.id]?.modelDefinitions?.length
+      ? cliStatus[cli.id].modelDefinitions!
+      : cli.models,
+  })), [cliStatus]);
 
   const showToast = (message: string, type: "success" | "error") => {
     setToast({ message, type });
@@ -227,7 +233,7 @@ export default function GlobalSettings({ isOpen, onClose, initialTab = "general"
   };
 
   // Derived data
-  const defaultCli = CLI_OPTIONS.find((c) => c.id === globalSettings.default_cli);
+  const defaultCli = runtimeCliOptions.find((c) => c.id === globalSettings.default_cli);
   const defaultCliSettings = defaultCli ? globalSettings.cli_settings.pi : {};
   const defaultModel = defaultCli?.models.find((m) => m.id === defaultCliSettings.model);
   const installedAgentCount = CLI_OPTIONS.filter((c) => c.enabled !== false && cliStatus[c.id]?.installed).length;
@@ -314,7 +320,7 @@ export default function GlobalSettings({ isOpen, onClose, initialTab = "general"
 
             {activeTab === "ai-agents" && (
               <AIAgentsTab
-                cliOptions={CLI_OPTIONS}
+                cliOptions={runtimeCliOptions}
                 cliStatus={cliStatus}
                 saveMessage={saveMessage}
                 isLoading={isLoading}

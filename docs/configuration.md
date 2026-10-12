@@ -58,7 +58,7 @@ Docker Compose 默认读取进程变量与 `.env`，不会自动读取 `.env.loc
 | --- | --- | --- | --- | --- |
 | 本地 Qwen（默认） | `local_qwen:qwen3.5-9b-q5km` | `MODELPORT_API_KEY` | 是 | 日常默认、低成本本地推理 |
 | DeepSeek 经 ModelPort | `deepseek:deepseek-v4-flash` | `MODELPORT_API_KEY` | 是 | 日常线上 DeepSeek、集中密钥/用量/余额治理 |
-| DeepSeek 官方直连 | `deepseek-v4-flash` | `DEEPSEEK_API_KEY` | 否 | 绕过网关验证、独立部署或应急路径 |
+| DeepSeek 官方直连 | 由官方 `/models` 返回 | `DEEPSEEK_API_KEY` | 否 | 绕过网关验证、独立部署或应急路径 |
 
 `local_qwen:qwen3.5-9b-q5km` 始终是代码级默认模型。项目、账号全局设置或 URL 可以显式选择其他已注册模型；浏览器不能提交任意 Base URL 或任意 Provider。
 
@@ -115,13 +115,13 @@ DEEPSEEK_API_KEY="replace-with-official-deepseek-api-key"
 
 不要同时配置 `DEEPSEEK_ANTHROPIC_AUTH_TOKEN`。后者是 ModelPort Anthropic provider 的上游变量，QuantPilot 官方直连 profile 不读取它。
 
-然后在以下任一入口显式选择 **DeepSeek V4 Flash (Official Direct)**，对应模型 ID 为 `deepseek-v4-flash`：
+启动后，QuantPilot 会用该 Key 请求 `GET https://api.deepseek.com/models`，并在以下入口展示当前账号可用的官方模型：
 
 - 新建项目对话框；
 - 设置页的 AI Agent 默认模型；
 - 已有项目聊天页的模型选择器。
 
-该 profile 固定连接 `https://api.deepseek.com`，不会经过 `127.0.0.1:38082`。如果机器上完全不运行 ModelPort，务必先把账号默认或新项目模型改成官方直连；否则代码级默认 Qwen 仍会尝试访问 ModelPort。这是显式选择保护，不会因为发现了一个 Key 就偷偷改变现有项目的 provider。
+所选动态 profile 固定连接 `https://api.deepseek.com`，不会经过 `127.0.0.1:38082`。如果机器上完全不运行 ModelPort，务必先把账号默认或新项目模型改成官方直连；否则代码级默认 Qwen 仍会尝试访问 ModelPort。这是显式选择保护，不会因为发现了一个 Key 就偷偷改变现有项目的 provider。
 
 本地可以直接验证官方端点。下面的请求会产生真实 Token 费用：
 
@@ -292,7 +292,7 @@ DEEPSEEK_API_KEY="replace-with-official-deepseek-api-key"
 QUANTPILOT_MEMORY_ENABLED=0
 ```
 
-保存后还需在 QuantPilot 中选择 `deepseek-v4-flash`；只配置 Key 不会改变默认 Qwen。
+保存后还需在 QuantPilot 中从官方动态目录选择模型；只配置 Key 不会改变默认 Qwen。
 
 ### 完全离线的界面/模板开发
 
@@ -383,7 +383,7 @@ npm run check:production -- --env-file /secure/path/quantpilot.env
 
 常见判断顺序：
 
-1. 先确认项目选择的模型 ID，避免把 `deepseek-v4-flash` 与 `deepseek:deepseek-v4-flash` 混淆。
+1. 先确认项目选择的模型 ID，避免把官方目录返回的 ID 与 ModelPort 的 `deepseek:deepseek-v4-flash` 混淆。
 2. 再确认凭据归属：ModelPort client key、ModelPort upstream key、官方 direct key 三者不能互换。
 3. 检查目标服务 `/health`、`/readyz` 或 `/v1/models`，区分连接失败、`401` 和 `403`。
 4. 确认 `.env.local` 没有被外部进程环境变量覆盖；容器编排环境优先级最高。

@@ -49,12 +49,12 @@ import { DEFAULT_DATA_AGENT_PROFILE_ID } from "@/lib/config/data-agent";
 import { fetchCliStatusSnapshot, createCliStatusFallback } from "@/hooks/useCLI";
 import type { CLIStatus } from "@/types/cli";
 import {
-  ACTIVE_CLI_MODEL_OPTIONS,
   ACTIVE_CLI_OPTIONS,
   ACTIVE_CLI_OPTIONS_MAP,
   DEFAULT_ACTIVE_CLI,
   normalizeModelForCli,
   modelAvailabilityError,
+  buildActiveModelOptions,
   sanitizeActiveCli,
   type ActiveCliId,
 } from "@/lib/utils/cliOptions";
@@ -212,8 +212,12 @@ export default function HomePage() {
   const { settings: globalSettings } = useGlobalSettings();
   const { user } = useAuth();
 
-  const availableModels =
-    ACTIVE_CLI_MODEL_OPTIONS[selectedAssistant] || [];
+  const availableModels = useMemo(
+    () => buildActiveModelOptions(cliStatus)
+      .filter((model) => model.cli === selectedAssistant && model.available)
+      .map(({ id, name }) => ({ id, name })),
+    [cliStatus, selectedAssistant],
+  );
   const selectedRoleModule =
     QUANT_CAPABILITIES.find((c) => c.id === selectedCapability) ??
     QUANT_CAPABILITIES[0];
@@ -325,6 +329,39 @@ export default function HomePage() {
   }, []);
 
   useEffect(() => { void refreshModelStatus(); }, [refreshModelStatus]);
+
+  useEffect(() => {
+    const currentStatus = cliStatus[selectedAssistant];
+    if (!currentStatus || currentStatus.checking || !currentStatus.modelDefinitions?.length) return;
+
+    const availableModelIds = new Set(currentStatus.models ?? []);
+    if (availableModelIds.has(selectedModel)) return;
+
+    const globalCli = sanitizeAssistant(globalSettings?.default_cli);
+    const globalStatus = cliStatus[globalCli];
+    if (!globalStatus || globalStatus.checking) return;
+    const globalModel = normalizeModelForAssistant(
+      globalCli,
+      globalSettings?.cli_settings?.[globalCli]?.model,
+    );
+    const fallbackModel = globalStatus.models?.includes(globalModel)
+      ? globalModel
+      : globalStatus.models?.[0];
+
+    if (!fallbackModel) return;
+    setSelectedAssistant(globalCli);
+    setSelectedModel(fallbackModel);
+    setUsingGlobalDefaults(true);
+    sessionStorage.setItem('selectedAssistant', globalCli);
+    sessionStorage.setItem('selectedModel', fallbackModel);
+  }, [
+    cliStatus,
+    globalSettings,
+    normalizeModelForAssistant,
+    sanitizeAssistant,
+    selectedAssistant,
+    selectedModel,
+  ]);
 
   // --- Data loading ---
   const load = useCallback(async () => {

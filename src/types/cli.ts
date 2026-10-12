@@ -49,6 +49,7 @@ export type CLIStatusEntry = {
   available?: boolean;
   configured?: boolean;
   models?: string[];
+  modelDefinitions?: CLIModel[];
   modelChecks?: ModelAvailability[];
 };
 

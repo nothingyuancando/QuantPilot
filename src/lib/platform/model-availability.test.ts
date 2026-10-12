@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { checkModelAvailability } from './model-availability';
-import { DEEPSEEK_MODEL_ID, LOCAL_QWEN_MODEL_ID, MODELPORT_DEEPSEEK_MODEL_ID } from '@/lib/constants/models';
+import { LOCAL_QWEN_MODEL_ID, MODELPORT_DEEPSEEK_MODEL_ID } from '@/lib/constants/models';
 
 const fetchMock = vi.fn<typeof fetch>();
 beforeEach(() => {
@@ -21,9 +21,21 @@ describe('model access availability', () => {
 
   it('accepts direct-only configuration without falsely enabling the default gateway model', async () => {
     vi.stubEnv('DEEPSEEK_API_KEY', 'private-direct-key');
-    fetchMock.mockResolvedValue(new Response(JSON.stringify({ data: [{ id: DEEPSEEK_MODEL_ID }] })));
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({ data: [
+      { id: 'deepseek-flash', name: 'DeepSeek-V4.1-Flash', input_modalities: ['text', 'image'] },
+      { id: 'deepseek-v4-pro', name: 'DeepSeek-V4-Pro', input_modalities: ['text'] },
+    ] })));
     const status = await checkModelAvailability();
-    expect(status.models).toEqual([DEEPSEEK_MODEL_ID]);
+    expect(status.models).toEqual(['deepseek-flash', 'deepseek-v4-pro']);
+    expect(status.modelDefinitions).toContainEqual(expect.objectContaining({
+      id: 'deepseek-flash',
+      name: 'DeepSeek-V4.1-Flash',
+      supportsImages: true,
+    }));
+    expect(status.modelDefinitions).toContainEqual(expect.objectContaining({
+      id: 'deepseek-v4-pro',
+      name: 'DeepSeek-V4-Pro',
+    }));
     expect(status.available).toBe(true);
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(JSON.stringify(status)).not.toContain('private-direct-key');

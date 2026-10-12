@@ -46,11 +46,21 @@ describe('project LLM config', () => {
     });
   });
 
-  it('keeps the locked DeepSeek profile available when explicitly selected', () => {
+  it('keeps the legacy DeepSeek profile available for stored projects', () => {
     expect(getProjectLlmConfig('deepseek-v4-flash')).toMatchObject({
       profileId: 'deepseek-v4-flash',
       provider: 'deepseek',
       model: 'deepseek-v4-flash',
+      baseUrl: 'https://api.deepseek.com',
+      credentialEnv: 'DEEPSEEK_API_KEY',
+    });
+  });
+
+  it('builds an official profile for a dynamically discovered DeepSeek model', () => {
+    expect(getProjectLlmConfig('deepseek-v4-pro')).toMatchObject({
+      profileId: 'deepseek-v4-pro',
+      provider: 'deepseek',
+      model: 'deepseek-v4-pro',
       baseUrl: 'https://api.deepseek.com',
       credentialEnv: 'DEEPSEEK_API_KEY',
     });
