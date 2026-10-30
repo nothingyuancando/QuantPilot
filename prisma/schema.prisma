@@ -419,13 +419,14 @@ model AgentRun {
   createdAt    DateTime  @default(now()) @map("created_at")
   updatedAt    DateTime  @updatedAt @map("updated_at")
 
-  project        Project              @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  request        UserRequest?         @relation(fields: [requestId, projectId], references: [id, projectId], onDelete: Restrict)
-  actor          AuthUser?            @relation("AgentRunActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+  project        Project                  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  request        UserRequest?             @relation(fields: [requestId, projectId], references: [id, projectId], onDelete: Restrict)
+  actor          AuthUser?                @relation("AgentRunActor", fields: [actorUserId], references: [id], onDelete: SetNull)
   events         AgentEvent[]
   checkpoints    AgentCheckpoint[]
   toolExecutions AgentToolExecution[]
   toolApprovals  AgentToolApproval[]
+  nodeAttempt    AgentMissionNodeAttempt?
 
   @@index([projectId, createdAt])
   @@index([requestId, createdAt])
@@ -740,11 +741,14 @@ model AgentMission {
   createdAt             DateTime  @default(now()) @map("created_at")
   updatedAt             DateTime  @updatedAt @map("updated_at")
 
-  project         Project                @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  request         UserRequest            @relation(fields: [requestId, projectId], references: [id, projectId], onDelete: Restrict)
+  project         Project                   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  request         UserRequest               @relation(fields: [requestId, projectId], references: [id, projectId], onDelete: Restrict)
   nodes           AgentMissionNode[]
-  receipts        AgentEvidenceReceipt[] @relation("MissionReceipts")
-  acceptedReceipt AgentEvidenceReceipt?  @relation("AcceptedMissionReceipt", fields: [acceptedReceiptId], references: [id], onDelete: SetNull)
+  nodeAttempts    AgentMissionNodeAttempt[]
+  nodeArtifacts   AgentNodeArtifact[]
+  nodeJobs        AgentNodeJob[]
+  receipts        AgentEvidenceReceipt[]    @relation("MissionReceipts")
+  acceptedReceipt AgentEvidenceReceipt?     @relation("AcceptedMissionReceipt", fields: [acceptedReceiptId], references: [id], onDelete: SetNull)
 
   @@unique([requestId, projectId])
   @@unique([projectId, activeSlot])
@@ -757,32 +761,168 @@ model AgentMission {
 /// Materialized MissionSpec node. Dependencies and scoped capabilities remain
 /// immutable JSON contracts; status/version are the only mutable execution data.
 model AgentMissionNode {
-  id        String @id @default(cuid())
-  missionId String @map("mission_id")
-  nodeKey   String @map("node_key")
-  nodeType  String @map("node_type")
-  effect    String
-  status    String @default("pending")
-  version   Int    @default(0)
+  id               String  @id @default(cuid())
+  missionId        String  @map("mission_id")
+  nodeKey          String  @map("node_key")
+  nodeType         String  @map("node_type")
+  effect           String
+  executor         String? @map("executor")
+  agentProfileId   String? @map("agent_profile_id")
+  profileVersion   String? @map("profile_version")
+  workspacePolicy  String? @map("workspace_policy")
+  concurrencyGroup String? @map("concurrency_group")
+  priority         Int     @default(0)
+  status           String  @default("pending")
+  version          Int     @default(0)
+  attemptCount     Int     @default(0) @map("attempt_count")
+  maxAttempts      Int     @default(1) @map("max_attempts")
 
   dependencies          Json
-  allowedTools          Json @map("allowed_tools")
-  requiredSkillSections Json @map("required_skill_sections")
-  inputArtifacts        Json @map("input_artifacts")
-  outputArtifacts       Json @map("output_artifacts")
+  joinPolicy            Json? @map("join_policy")
+  failurePolicy         Json? @map("failure_policy")
+  allowedTools          Json  @map("allowed_tools")
+  requiredSkillSections Json  @map("required_skill_sections")
+  inputArtifacts        Json  @map("input_artifacts")
+  outputArtifacts       Json  @map("output_artifacts")
   budget                Json
-  acceptancePredicates  Json @map("acceptance_predicates")
+  acceptancePredicates  Json  @map("acceptance_predicates")
 
-  startedAt  DateTime? @map("started_at")
-  finishedAt DateTime? @map("finished_at")
-  createdAt  DateTime  @default(now()) @map("created_at")
-  updatedAt  DateTime  @updatedAt @map("updated_at")
+  readyAt          DateTime? @map("ready_at")
+  availableAt      DateTime? @map("available_at")
+  resultArtifactId String?   @map("result_artifact_id") @db.Uuid
+  errorCode        String?   @map("error_code")
+  errorMessage     String?   @map("error_message")
+  startedAt        DateTime? @map("started_at")
+  finishedAt       DateTime? @map("finished_at")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
 
-  mission AgentMission @relation(fields: [missionId], references: [id], onDelete: Cascade)
+  mission   AgentMission              @relation(fields: [missionId], references: [id], onDelete: Cascade)
+  attempts  AgentMissionNodeAttempt[]
+  artifacts AgentNodeArtifact[]
+  jobs      AgentNodeJob[]
 
   @@unique([missionId, nodeKey])
   @@index([missionId, status])
+  @@index([status, availableAt, priority])
+  @@index([missionId, concurrencyGroup, status])
   @@map("agent_mission_nodes")
+}
+
+/// One immutable execution attempt for a Mission node. Node-level fencing
+/// allows read-only specialists to run concurrently without acquiring the
+/// canonical workspace mutation lease.
+model AgentMissionNodeAttempt {
+  id         String  @id @default(uuid()) @db.Uuid
+  missionId  String  @map("mission_id")
+  nodeId     String  @map("node_id")
+  attempt    Int
+  agentRunId String? @unique @map("agent_run_id")
+
+  status            String    @default("pending")
+  leaseOwner        String?   @map("lease_owner")
+  leaseExpiresAt    DateTime? @map("lease_expires_at")
+  lastHeartbeatAt   DateTime? @map("last_heartbeat_at")
+  fencingToken      Int       @default(0) @map("fencing_token")
+  inputManifestHash String    @map("input_manifest_hash")
+  resultArtifactId  String?   @map("result_artifact_id") @db.Uuid
+  errorCode         String?   @map("error_code")
+  errorMessage      String?   @map("error_message")
+  startedAt         DateTime? @map("started_at")
+  finishedAt        DateTime? @map("finished_at")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  mission   AgentMission        @relation(fields: [missionId], references: [id], onDelete: Cascade)
+  node      AgentMissionNode    @relation(fields: [nodeId], references: [id], onDelete: Cascade)
+  agentRun  AgentRun?           @relation(fields: [agentRunId], references: [id], onDelete: SetNull)
+  artifacts AgentNodeArtifact[]
+  job       AgentNodeJob?
+
+  @@unique([nodeId, attempt])
+  @@index([missionId, status])
+  @@index([status, leaseExpiresAt])
+  @@map("agent_mission_node_attempts")
+}
+
+/// Schema-validated immutable handoff between Agent nodes. The database keeps
+/// bounded identity and hashes; the artifact body remains in controlled storage.
+model AgentNodeArtifact {
+  id            String   @id @default(uuid()) @db.Uuid
+  missionId     String   @map("mission_id")
+  nodeId        String   @map("node_id")
+  attemptId     String   @map("attempt_id") @db.Uuid
+  artifactType  String   @map("artifact_type")
+  schemaId      String   @map("schema_id")
+  schemaVersion Int      @map("schema_version")
+  storagePath   String   @map("storage_path")
+  contentSha256 String   @map("content_sha256")
+  byteLength    Int      @map("byte_length")
+  sourceRunId   String?  @map("source_run_id")
+  status        String   @default("accepted")
+  manifest      Json
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  mission AgentMission            @relation(fields: [missionId], references: [id], onDelete: Cascade)
+  node    AgentMissionNode        @relation(fields: [nodeId], references: [id], onDelete: Cascade)
+  attempt AgentMissionNodeAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+
+  @@unique([attemptId, artifactType])
+  @@index([missionId, nodeId])
+  @@index([contentSha256])
+  @@map("agent_node_artifacts")
+}
+
+/// Durable dispatch record for one node attempt. The outer generation job
+/// continues to represent the accepted user request and must not be overloaded.
+model AgentNodeJob {
+  id              String    @id @default(uuid()) @db.Uuid
+  missionId       String    @map("mission_id")
+  nodeId          String    @map("node_id")
+  attemptId       String    @unique @map("attempt_id") @db.Uuid
+  status          String    @default("pending")
+  priority        Int       @default(0)
+  availableAt     DateTime  @default(now()) @map("available_at")
+  leaseOwner      String?   @map("lease_owner")
+  leaseExpiresAt  DateTime? @map("lease_expires_at")
+  lastHeartbeatAt DateTime? @map("last_heartbeat_at")
+  fencingToken    Int       @default(0) @map("fencing_token")
+  envelope        Json
+  eventSequence   Int       @default(0) @map("event_sequence")
+  errorCode       String?   @map("error_code")
+  errorMessage    String?   @map("error_message")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  mission AgentMission            @relation(fields: [missionId], references: [id], onDelete: Cascade)
+  node    AgentMissionNode        @relation(fields: [nodeId], references: [id], onDelete: Cascade)
+  attempt AgentMissionNodeAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  events  AgentNodeOutboxEvent[]
+
+  @@index([status, availableAt, priority])
+  @@index([status, leaseExpiresAt])
+  @@index([missionId, status])
+  @@map("agent_node_jobs")
+}
+
+model AgentNodeOutboxEvent {
+  id          String    @id @default(uuid()) @db.Uuid
+  jobId       String    @map("job_id") @db.Uuid
+  missionId   String    @map("mission_id")
+  nodeId      String    @map("node_id")
+  sequence    Int
+  eventType   String    @map("event_type")
+  payload     Json
+  occurredAt  DateTime  @map("occurred_at")
+  publishedAt DateTime? @map("published_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  job AgentNodeJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@unique([jobId, sequence])
+  @@index([missionId, createdAt])
+  @@index([publishedAt, createdAt])
+  @@map("agent_node_outbox_events")
 }
 
 /// Immutable, bounded evidence projection. Raw prompts, reasoning, build logs,
@@ -1049,34 +1189,36 @@ model EvalRun {
 }
 
 model EvalQueueItem {
-  id              String    @id
-  status          String
-  cli             String
-  model           String
-  reasoningEffort String    @map("reasoning_effort")
-  evaluatorId     String    @default("rule-strict") @map("evaluator_id")
-  concurrency     Int       @default(1)
-  repeat          Int       @default(1)
-  mode            String    @default("contract")
-  selectedCases   Json      @map("selected_cases")
-  limit           Int?
-  keepProjects    Boolean   @map("keep_projects")
-  reportId        String?   @map("report_id")
-  reportPath      String?   @map("report_path")
-  logPath         String?   @map("log_path")
-  pid             Int?
-  exitCode        Int?      @map("exit_code")
-  error           String?
-  leaseToken      String?   @map("lease_token")
-  leaseExpiresAt  DateTime? @map("lease_expires_at")
-  attemptCount    Int       @default(0) @map("attempt_count")
-  createdAt       DateTime  @map("created_at")
-  startedAt       DateTime? @map("started_at")
-  finishedAt      DateTime? @map("finished_at")
-  updatedAt       DateTime  @updatedAt @map("updated_at")
+  id                String    @id
+  status            String
+  cli               String
+  model             String
+  reasoningEffort   String    @map("reasoning_effort")
+  evaluatorId       String    @default("rule-strict") @map("evaluator_id")
+  concurrency       Int       @default(1)
+  repeat            Int       @default(1)
+  mode              String    @default("contract")
+  orchestrationMode String    @default("single_agent") @map("orchestration_mode")
+  selectedCases     Json      @map("selected_cases")
+  limit             Int?
+  keepProjects      Boolean   @map("keep_projects")
+  reportId          String?   @map("report_id")
+  reportPath        String?   @map("report_path")
+  logPath           String?   @map("log_path")
+  pid               Int?
+  exitCode          Int?      @map("exit_code")
+  error             String?
+  leaseToken        String?   @map("lease_token")
+  leaseExpiresAt    DateTime? @map("lease_expires_at")
+  attemptCount      Int       @default(0) @map("attempt_count")
+  createdAt         DateTime  @map("created_at")
+  startedAt         DateTime? @map("started_at")
+  finishedAt        DateTime? @map("finished_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
 
   @@index([status])
   @@index([status, leaseExpiresAt])
+  @@index([orchestrationMode, createdAt])
   @@index([createdAt])
   @@map("eval_queue_items")
 }

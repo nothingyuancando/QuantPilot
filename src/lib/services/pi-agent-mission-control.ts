@@ -13,7 +13,11 @@ import {
 } from '@/lib/agent/mission';
 import { withPiAgentWorkspaceResourceLock } from '@/lib/agent/runtime/workspace-resource-lock';
 import type { QuantRunPlan } from '@/lib/domains/finance/workspace';
-import { createFinanceMissionDefinition } from '@/lib/domains/finance';
+import {
+  createFinanceMissionDefinition,
+  createFinanceMultiAgentMissionDefinition,
+} from '@/lib/domains/finance';
+import { isFinanceMultiAgentEnabled } from '@/lib/quant/finance-multi-agent';
 import { capturePiAgentCandidate } from '@/lib/services/pi-agent-candidate';
 import { PiAgentMissionVerificationSession } from '@/lib/services/pi-agent-mission-verification-session';
 import {
@@ -66,7 +70,9 @@ export async function createQuantPiAgentMission(input: {
       canonicalId: symbol,
     })),
     maxRepairAttempts: input.maxRepairAttempts,
-    definition: createFinanceMissionDefinition({
+    definition: (isFinanceMultiAgentEnabled()
+      ? createFinanceMultiAgentMissionDefinition
+      : createFinanceMissionDefinition)({
       maxRepairAttempts: input.maxRepairAttempts,
       expectedArtifacts: input.runPlan.expectedArtifacts,
     }),

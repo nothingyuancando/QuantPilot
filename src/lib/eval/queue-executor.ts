@@ -12,7 +12,8 @@ export function reportBelongsToClaim(value: unknown, claim: EvalQueueClaim): boo
   const { queue, suite, runtime } = value.metadata;
   return isRecord(queue) && queue.id === claim.item.id && queue.leaseToken === claim.leaseToken
     && isRecord(suite) && suite.mode === claim.item.mode
-    && isRecord(runtime) && runtime.configuredModel === claim.item.model;
+    && isRecord(runtime) && runtime.configuredModel === claim.item.model
+    && runtime.orchestrationMode === claim.item.orchestrationMode;
 }
 
 function stopOwnedProcess(child: ChildProcess): Promise<void> {
@@ -65,6 +66,8 @@ export async function executeEvalClaim(claim: EvalQueueClaim, signal: AbortSigna
         QUANTPILOT_EVAL_REPORT_ID: reportId,
         QUANTPILOT_EVAL_QUEUE_ID: item.id,
         QUANTPILOT_EVAL_LEASE_TOKEN: claim.leaseToken,
+        QUANTPILOT_EVAL_ORCHESTRATION_MODE: item.orchestrationMode,
+        QUANTPILOT_MULTI_AGENT_ENABLED: item.orchestrationMode === 'multi_agent' ? '1' : '0',
       },
       detached: process.platform !== 'win32',
       stdio: ['ignore', log.fd, log.fd],

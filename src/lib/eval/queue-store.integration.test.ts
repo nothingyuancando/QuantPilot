@@ -18,7 +18,7 @@ describe.skipIf(!databaseUrl)('durable evaluation queue (isolated PostgreSQL)', 
     return {
       id: prefix + suffix, status: 'queued', cli: 'pi', model: 'captured-model-v1',
       reasoningEffort: '', evaluatorId: 'rule-strict', concurrency: 1, repeat: 1,
-      mode: 'contract', selectedCases: [], limit: null, keepProjects: false,
+      mode: 'contract', orchestrationMode: 'single_agent', selectedCases: [], limit: null, keepProjects: false,
       reportId: null, reportPath: null, logPath: null, pid: null, exitCode: null,
       error: null, createdAt: new Date().toISOString(), startedAt: null, finishedAt: null,
     };

@@ -2759,6 +2759,9 @@ async function main() {
       },
       runtime: {
         cli: args.cli,
+        orchestrationMode: process.env.QUANTPILOT_EVAL_ORCHESTRATION_MODE === 'multi_agent'
+          ? 'multi_agent'
+          : 'single_agent',
         provider: args.mode === 'e2e' ? expectedRuntime.provider : null,
         model: args.mode === 'e2e' ? args.model : null,
         configuredModel: args.model,

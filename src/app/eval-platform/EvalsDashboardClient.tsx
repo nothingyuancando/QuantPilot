@@ -141,6 +141,37 @@ export default function EvalsDashboardClient({ data }: Props) {
   };
   const selectEvalSet = (id: string) => { setSelectedEvalSetId(id); setSelectedCaseIds([]); };
   const startSelectedEvalSet = () => startBenchmark(undefined, selectedEvalSet, true);
+  const startMultiAgentComparison = async () => {
+    setIsStarting(true);
+    setToast(null);
+    const selectedCases = selectedEvalSet.id === "all" ? [] : selectedEvalSet.caseIds;
+    try {
+      const response = await fetch(`${API_BASE}/api/evals`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "start-multi-agent-comparison",
+          evaluatorId: selectedEvaluator.id,
+          cli: selectedEvaluator.cli,
+          model: selectedEvaluator.model,
+          reasoningEffort: selectedEvaluator.reasoningEffort,
+          concurrency: evaluatorConcurrency,
+          repeat: evaluatorRepeat,
+          selectedCases,
+          limit: null,
+          keepProjects: false,
+        }),
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload.success) throw new Error(payload.error ?? "对照评测启动失败");
+      showToast("success", "单 Agent 与多 Agent 两组 E2E 已按相同用例进入队列。");
+      await refreshDashboard();
+    } catch (error) {
+      showToast("error", error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsStarting(false);
+    }
+  };
   const startEvalSet = (id: string) => {
     const evalSet = evalSets.find((item) => item.id === id);
     if (!evalSet) return;
@@ -512,6 +543,7 @@ export default function EvalsDashboardClient({ data }: Props) {
                 onRepeatChange={setEvaluatorRepeat}
                 onEvalSetSelect={selectEvalSet}
                 onSimulateFlow={simulateFlow} onStart={startSelectedEvalSet}
+                onStartComparison={startMultiAgentComparison}
               />
             )}
 

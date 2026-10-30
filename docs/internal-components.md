@@ -110,7 +110,7 @@ Skills 是 Agent 的项目内能力手册。它们不是简单提示词，而是
 | 可视化 | `dashboard-visualization`、`platform-ui-product-design` | 生成金融看板并修复布局问题 |
 | 回测 | `quant-backtest` | 管理策略参数、回测结果和限制说明 |
 
-学习 Skills 的详细教程见 [07. Skills 编写与迭代教程](learning/07-skills-authoring.md)。
+Skills 的源码、行为契约、发布和回退要求见 [Skills 治理](skills-governance.md)。
 
 ## 验证和评测组件
 
@@ -153,9 +153,9 @@ QUANTPILOT_REDIS_CACHE_ENABLED=1
 
 | 需求 | 优先改哪里 | 同步文档 |
 | --- | --- | --- |
-| 股票池增加字段 | 对应 market-data repository/model、`src/lib/quant/strategy-mappers.ts`、策略平台客户端 | `docs/learning/03`、市场数据 README |
+| 股票池增加字段 | 对应 market-data repository/model、`src/lib/quant/strategy-mappers.ts`、策略平台客户端 | `docs/strategy-platform-guide.md`、市场数据 README |
 | 新增数据源 | provider、注册表、数据质量、候选探针 | `docs/market-data-source-knowledge.md` |
-| 页面生成反复不好看 | `.pi/skills/dashboard-visualization` 或 UI skill | `docs/learning/04`、`docs/skills-governance.md` |
+| 页面生成反复不好看 | `.pi/skills/dashboard-visualization` 或 UI skill | `docs/generated-workspace-contract.md`、`docs/skills-governance.md` |
 | 新增基础设施组件 | `docker-compose.yml`、`.env.example`、doctor、运行治理中心 | `docs/infrastructure.md`、`docs/troubleshooting.md` |
 | 新增评测能力 | `src/lib/eval/index.ts`、评测平台页面 | `docs/evals-guide.md` |
 | 生成工作空间文件变化 | scaffold、validation、artifact contracts | `docs/generated-workspace-contract.md` |

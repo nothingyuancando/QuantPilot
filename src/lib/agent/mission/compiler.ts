@@ -10,6 +10,10 @@ import type {
   PiAgentMissionSpec,
 } from './types';
 
+const NODE_KEY_PATTERN = /^[a-z][a-z0-9_]{0,63}$/u;
+const MAX_MISSION_NODES = 32;
+const MAX_MISSION_DEPTH = 12;
+
 function sha256(value: string): string {
   return createHash('sha256').update(value, 'utf8').digest('hex');
 }
@@ -61,8 +65,14 @@ function compileArtifacts(
 }
 
 function compileNodes(nodes: readonly PiAgentMissionNodeSpec[]): PiAgentMissionNodeSpec[] {
+  if (nodes.length === 0 || nodes.length > MAX_MISSION_NODES) {
+    throw new Error(`MissionSpec must contain between 1 and ${MAX_MISSION_NODES} nodes.`);
+  }
   const byKey = new Map<PiAgentMissionNodeKey, PiAgentMissionNodeSpec>();
   for (const node of nodes) {
+    if (!NODE_KEY_PATTERN.test(node.key)) {
+      throw new Error(`Invalid Mission node key: ${node.key}`);
+    }
     if (byKey.has(node.key)) throw new Error(`Duplicate Mission node: ${node.key}`);
     if (
       !Number.isSafeInteger(node.budget.maxAttempts) || node.budget.maxAttempts <= 0 ||
@@ -73,9 +83,80 @@ function compileNodes(nodes: readonly PiAgentMissionNodeSpec[]): PiAgentMissionN
     ) {
       throw new Error(`Mission node ${node.key} contains an invalid budget.`);
     }
+    const executor = node.executor ?? (
+      node.type === 'validator' || node.type === 'preview'
+        ? 'validator'
+        : node.type === 'verifier'
+          ? 'verifier'
+          : node.type === 'writer'
+            ? 'model_agent'
+            : 'platform'
+    );
+    const workspacePolicy = node.workspacePolicy ?? (
+      node.effect === 'workspace_write'
+        ? 'single_writer'
+        : node.effect === 'artifact_write'
+          ? 'artifact_only'
+          : node.effect === 'read'
+            ? 'read_only'
+            : 'none'
+    );
+    if (workspacePolicy === 'single_writer' && node.effect !== 'workspace_write') {
+      throw new Error(`Mission node ${node.key} declares single_writer without workspace_write.`);
+    }
+    if (node.effect === 'workspace_write' && workspacePolicy !== 'single_writer') {
+      throw new Error(`Mission node ${node.key} must use the single_writer workspace policy.`);
+    }
+    if (executor === 'model_agent' && node.type !== 'writer' && !node.agentProfileId) {
+      throw new Error(`Model Agent node ${node.key} requires agentProfileId.`);
+    }
+    const joinPolicy = node.joinPolicy ?? { type: 'all' as const, allowDegradedInputs: false };
+    if (
+      joinPolicy.type === 'quorum' &&
+      (!Number.isSafeInteger(joinPolicy.quorum) ||
+        joinPolicy.quorum! <= 0 ||
+        joinPolicy.quorum! > node.dependencies.length)
+    ) {
+      throw new Error(`Mission node ${node.key} contains an invalid quorum.`);
+    }
+    const failurePolicy = node.failurePolicy ?? {
+      mode: node.budget.maxAttempts > 1 ? 'retry' as const : 'fail_fast' as const,
+      maxAttempts: node.budget.maxAttempts,
+      retryBackoffMs: 1_000,
+    };
+    if (
+      !Number.isSafeInteger(failurePolicy.maxAttempts) ||
+      failurePolicy.maxAttempts <= 0 ||
+      failurePolicy.maxAttempts > node.budget.maxAttempts ||
+      !Number.isSafeInteger(failurePolicy.retryBackoffMs) ||
+      failurePolicy.retryBackoffMs < 0 ||
+      failurePolicy.retryBackoffMs > 86_400_000
+    ) {
+      throw new Error(`Mission node ${node.key} contains an invalid failure policy.`);
+    }
+    const concurrency = node.concurrency ?? {
+      group: workspacePolicy === 'single_writer' ? 'workspace-writer' : 'default',
+      ...(workspacePolicy === 'single_writer' ? { maxParallel: 1 } : {}),
+      priority: 0,
+    };
+    if (
+      !/^[a-z][a-z0-9_-]{0,63}$/u.test(concurrency.group) ||
+      !Number.isSafeInteger(concurrency.priority) ||
+      concurrency.priority < -1_000 ||
+      concurrency.priority > 1_000 ||
+      (concurrency.maxParallel !== undefined &&
+        (!Number.isSafeInteger(concurrency.maxParallel) || concurrency.maxParallel <= 0))
+    ) {
+      throw new Error(`Mission node ${node.key} contains an invalid concurrency policy.`);
+    }
     byKey.set(node.key, {
       ...node,
+      executor,
+      workspacePolicy,
       dependencies: [...node.dependencies],
+      joinPolicy: { ...joinPolicy },
+      failurePolicy: { ...failurePolicy },
+      concurrency: { ...concurrency },
       allowedTools: [...node.allowedTools],
       requiredSkillSections: [...node.requiredSkillSections],
       inputArtifacts: node.inputArtifacts.map(safeArtifactPattern),
@@ -93,6 +174,42 @@ function compileNodes(nodes: readonly PiAgentMissionNodeSpec[]): PiAgentMissionN
         throw new Error(`Mission node ${node.key} cannot depend on itself.`);
       }
     }
+  }
+  const visiting = new Set<PiAgentMissionNodeKey>();
+  const visited = new Set<PiAgentMissionNodeKey>();
+  const depthByKey = new Map<PiAgentMissionNodeKey, number>();
+  const visit = (key: PiAgentMissionNodeKey): number => {
+    if (visiting.has(key)) throw new Error(`MissionSpec contains a dependency cycle at ${key}.`);
+    if (visited.has(key)) return depthByKey.get(key)!;
+    visiting.add(key);
+    const node = byKey.get(key)!;
+    const depth = node.dependencies.length === 0
+      ? 1
+      : 1 + Math.max(...node.dependencies.map(visit));
+    if (depth > MAX_MISSION_DEPTH) {
+      throw new Error(`MissionSpec exceeds maximum DAG depth ${MAX_MISSION_DEPTH}.`);
+    }
+    visiting.delete(key);
+    visited.add(key);
+    depthByKey.set(key, depth);
+    return depth;
+  };
+  for (const key of byKey.keys()) visit(key);
+
+  const artifactProducer = new Map<string, PiAgentMissionNodeKey>();
+  let singleWriterCount = 0;
+  for (const node of byKey.values()) {
+    if (node.workspacePolicy === 'single_writer') singleWriterCount += 1;
+    for (const artifact of node.outputArtifacts) {
+      const existing = artifactProducer.get(artifact);
+      if (existing) {
+        throw new Error(`Mission artifact ${artifact} has multiple producers: ${existing}, ${node.key}.`);
+      }
+      artifactProducer.set(artifact, node.key);
+    }
+  }
+  if (singleWriterCount > 1) {
+    throw new Error('MissionSpec may declare at most one single_writer node.');
   }
   return [...byKey.values()];
 }

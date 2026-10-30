@@ -4,7 +4,7 @@
 
 项目围绕「可信数据 → 可复现实验 → 持续研究 → 结果复盘」演进。当前以金融研究为主要业务域，通用 Data Agent 层负责组织任务、能力和交付，PI Agent 负责多轮执行，QuantPilot 负责权限、运行状态和结果验收。
 
-[新手入口](#新手从这里开始) · [快速启动](#快速启动) · [第一次研究](#第一次研究) · [Skills](#skills从发现到维护) · [常见问题](#新手常见问题) · [学习路线](#循序渐进地学习) · [完整文档](docs/README.md)
+[新手入口](#新手从这里开始) · [快速启动](#快速启动) · [第一次研究](#第一次研究) · [多-agent-研究](#multi-agent-研究编排) · [Skills](#skills从发现到维护) · [常见问题](#新手常见问题) · [完整文档](docs/README.md)
 
 ## 新手从这里开始
 
@@ -13,8 +13,8 @@
 | 你的目标 | 推荐入口 | 完成标志 |
 | --- | --- | --- |
 | 先了解产品，不配置模型 | 阅读下方能力介绍，完成快速启动中的依赖和基础组件配置 | 能打开首页、Skills 和策略平台；这一步不验证 AI 研究 |
-| 跑通第一项研究 | [快速启动](#快速启动)，然后跟随[新手实操教程](docs/learning/first-research.md) | 能解释一个看板的数据来源、时间范围和验收状态 |
-| 开始修改项目 | [项目结构](docs/project-structure.md) → [开发者教程](docs/learning/06-developer-playbook.md) | 找到修改位置，并通过对应质量检查 |
+| 跑通第一项研究 | [快速启动](#快速启动)，然后完成[第一次研究](#第一次研究) | 能解释一个看板的数据来源、时间范围和验收状态 |
+| 开始修改项目 | [项目结构](docs/project-structure.md) → [开发与验证](#开发与验证) | 找到修改位置，并通过对应质量检查 |
 
 先认识几个常用词，后面读页面会轻松一些：
 
@@ -54,6 +54,34 @@ flowchart LR
 
 平台保留数据来源、运行记录和验证产物，便于复查一次交付。后台执行具备持久化任务、审批、配额、取消与故障接管；生成代码的构建和预览在 Linux namespace 沙箱内运行。实现细节见 [Data Agent 架构](docs/data-agent-architecture.md) 和 [PI Agent 治理边界](docs/pi-agent-migration.md)。
 
+## Multi-Agent 研究编排
+
+金融研究可以选择固定、可审计的 Mission DAG：数据预取后并行运行基本面、技术面和风险预检 Specialist，再由风险交叉检查与 Synthesis 汇总证据，最后交给唯一的 Workspace Writer 生成看板。基本面与技术面结论冲突时，系统会保留争议观点、各自证据与置信度，而不是强行合并成单一结论。
+
+```mermaid
+flowchart LR
+  P[Planning] --> D[Data Prefetch]
+  D --> F[Fundamental]
+  D --> T[Technical]
+  D --> R[Risk Precheck]
+  F --> C[Risk Cross-check]
+  T --> C
+  R --> C
+  C --> S[Synthesis]
+  S --> W[Single Workspace Writer]
+  W --> V[Validation + Evidence Verification]
+```
+
+该模式不是让模型自由创建 Agent：拓扑、角色、工具、预算和输出 Schema 均由可信的 Finance Mission Definition 固定。各 Specialist 只能写入隔离的结构化产物，通过证据 ID、路径和 SHA-256 向下游交接；只有 Writer 可以修改交付工作区。节点任务、Attempt、租约和 fencing token 持久化到 PostgreSQL，因此 Worker 重启或接管时不会由旧执行覆盖新结果。
+
+在完成数据库迁移并配置模型凭据后，通过以下开关启用；功能默认关闭，已有 Mission 不会被原地切换：
+
+```dotenv
+QUANTPILOT_MULTI_AGENT_ENABLED=1
+```
+
+生成页会展示 DAG 波次、节点状态、模型、耗时、Token、产物和错误。Eval Platform 支持使用相同 case、模型与 evaluator 对照运行单 Agent 和多 Agent，比较通过率、评分、耗时与 Token。完整拓扑、证据约束、安全边界和灰度步骤见 [Multi-Agent Mission DAG](docs/multi-agent-orchestration.md)。
+
 ## 快速启动
 
 本地开发采用 **Docker 运行基础组件，宿主机运行 Web、市场数据服务与 Workers**。Compose 提供数据库、缓存和观测组件；应用通过 `npm run dev` 启动。以下命令除克隆仓库外，均在仓库根目录执行。
@@ -61,7 +89,7 @@ flowchart LR
 还没有源码时，先运行；已有本地仓库可跳过：
 
 ```bash
-git clone https://github.com/tiammomo/QuantPilot.git
+git clone https://github.com/nothingyuancando/QuantPilot.git
 cd QuantPilot
 ```
 
@@ -192,7 +220,7 @@ npm run dev
 
 ## 第一次研究
 
-第一轮建议只研究一个标的，按「**标的 + 时间范围 + 指标 + 输出要求**」组织问题。完整的逐步演练和检查表见[从零完成第一项研究](docs/learning/first-research.md)。
+第一轮建议只研究一个标的，按「**标的 + 时间范围 + 指标 + 输出要求**」组织问题。
 
 1. 打开首页，在输入区选择已配置的模型，并选择 **生成看板**。**只做问答** 是另一种输出方式，不用于本教程的看板验收。
 2. 输入下面的练习问题，然后点击 **开始研究**；系统会创建研究空间并进入项目页：
@@ -230,13 +258,13 @@ Skills Market 提供内置可信技能的搜索筛选、能力详情、兼容性
 
 PI Agent 的实际执行读取平台保存的项目版本。Claude Code / Codex 当前验证范围是目录安装与完整性，真实工具调用兼容性仍需单独验收。
 
-在线草稿、发布快照和安装记录保存在 `QUANTPILOT_SKILLS_STATE_DIR`，默认 `data/skill-catalog/`。生产环境应将其放在代码发布目录之外，由 Web 和 Worker 共享并备份。操作与权限说明见 [Skills 治理](docs/skills-governance.md)，编写方法见 [Skills 教程](docs/learning/07-skills-authoring.md)。
+在线草稿、发布快照和安装记录保存在 `QUANTPILOT_SKILLS_STATE_DIR`，默认 `data/skill-catalog/`。生产环境应将其放在代码发布目录之外，由 Web 和 Worker 共享并备份。操作、权限与编写要求见 [Skills 治理](docs/skills-governance.md)。
 
 ## 新手常见问题
 
 | 现象 | 先检查什么 | 下一步 |
 | --- | --- | --- |
-| `npm ci` 或 Python 安装失败 | Node/npm/uv 版本、下载网络、当前是否在仓库根目录 | [启动排查](docs/learning/01-quick-start.md) |
+| `npm ci` 或 Python 安装失败 | Node/npm/uv 版本、下载网络、当前是否在仓库根目录 | [故障排查](docs/troubleshooting.md) |
 | 数据库无法连接 | Docker 是否启动，`docker compose ps` 是否健康，`.env` 端口是否与连接地址一致 | `npm run db:doctor` |
 | `3000` 打不开 | 运行终端是否仍在，启动器是否选择了其他端口 | 使用终端打印的 URL |
 | `8000` 启动超时 | Python 依赖是否已安装，端口是否被其他程序占用 | 单独运行 `npm run dev:market` 查看错误 |
@@ -245,22 +273,10 @@ PI Agent 的实际执行读取平台保存的项目版本。Claude Code / Codex 
 | 一直排队 | Worker 模式下是否只启动了 `dev:web` | 使用 `npm run dev`，到 `/ops-platform` 查看 Worker 与队列 |
 | 研究历史日期却提示数据缺口 | 历史截止时间、财报归档和日线覆盖是否满足请求 | 明确写起止日期；平台不会用最新财报或实时价补齐历史结果，见 [时间合同](docs/api-reference.md) |
 | 看板为空或没有最新数据 | 标的、日期、覆盖范围、数据源返回的限制 | 策略平台检查目标范围，按需补数 |
-| 构建报 `unshare`，或视觉检查找不到浏览器 | Linux namespace 能力、Chromium 及系统依赖 | [沙箱与浏览器检查](docs/learning/01-quick-start.md#沙箱与浏览器检查) |
+| 构建报 `unshare`，或视觉检查找不到浏览器 | Linux namespace 能力、Chromium 及系统依赖 | [配置指南](docs/configuration.md)与[故障排查](docs/troubleshooting.md) |
 | Skills 保存提示版本冲突 | 编辑期间是否有其他修改 | 保留未提交内容，重新读取并核对差异；详见 [Skills 治理](docs/skills-governance.md) |
 
 排障时提供命令、HTTP 状态码和已脱敏的报错即可，不要粘贴整份 `.env.local`。更多现象见[故障排查手册](docs/troubleshooting.md)。
-
-## 循序渐进地学习
-
-| 阶段 | 练习 | 阅读入口 |
-| --- | --- | --- |
-| 入门 | 跑通一个标的，读懂数据来源和验收结果 | [新手实操](docs/learning/first-research.md) |
-| 理解数据 | 检查同一标的的覆盖、截止日期和缺失字段 | [市场数据与策略](docs/learning/03-market-data-and-strategy-platform.md) |
-| 理解技能 | 查看一个 Skill 的能力、版本和项目安装状态 | [Skills 与看板](docs/learning/04-skills-and-visual-dashboard.md) |
-| 学会复盘 | 选择一次失败任务，根据证据区分数据、模型和页面问题 | [评测与运维](docs/learning/05-evaluation-and-operations.md) |
-| 参与开发 | 做一次小改动，运行对应检查，再理解完整链路 | [开发者教程](docs/learning/06-developer-playbook.md)、[技能编写](docs/learning/07-skills-authoring.md) |
-
-完整课程见[教学目录](docs/learning/README.md)。已经知道要解决什么问题时，直接查[文档总览](docs/README.md)，不必按顺序读完。
 
 ## 开发与验证
 
@@ -304,4 +320,4 @@ scripts/ + deploy/      开发、检查、构建与部署配置
 
 当前交付、验收标准与后续优先级见 [路线图](docs/ROADMAP.md)。研究结果用于分析、复盘和辅助决策，不构成投资建议或收益承诺。
 
-继续阅读：[文档总览](docs/README.md) · [系统学习路径](docs/learning/README.md) · [架构总览](docs/architecture.md)。项目许可证见 [MIT License](LICENSE)。
+继续阅读：[文档总览](docs/README.md) · [Multi-Agent Mission DAG](docs/multi-agent-orchestration.md) · [架构总览](docs/architecture.md)。项目许可证见 [MIT License](LICENSE)。

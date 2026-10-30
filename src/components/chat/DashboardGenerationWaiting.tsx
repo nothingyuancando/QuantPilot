@@ -4,6 +4,10 @@ import { useReducedMotion } from 'framer-motion';
 import Image from 'next/image';
 
 import dashboardGenerationAnime from '@/assets/dashboard-generation-anime-v1.webp';
+import type {
+  MultiAgentNodeProgress,
+  MultiAgentProgress,
+} from '@/lib/contracts/multi-agent-progress';
 import { MotionDiv } from '@/lib/motion';
 
 export type DashboardGenerationWaitingMode = 'generating' | 'preview';
@@ -33,6 +37,88 @@ const WAITING_COPY: Record<
     helper: '正在启动并确认预览服务，准备好后会自动切换到结果。',
   },
 };
+
+const AGENT_LABELS: Record<string, string> = {
+  fundamental_research: '基本面',
+  technical_analysis: '技术分析',
+  risk_precheck: '风险预检',
+  risk_crosscheck: '风险复核',
+  synthesis: '综合研判',
+  workspace_generation: '看板生成',
+};
+
+const TERMINAL_SUCCESS = new Set(['passed', 'succeeded', 'candidate_complete', 'degraded']);
+const TERMINAL_FAILURE = new Set(['failed', 'cancelled']);
+const ACTIVE = new Set(['ready', 'claimed', 'running', 'waiting_approval', 'retry_wait']);
+
+function agentStatus(node: MultiAgentNodeProgress) {
+  if (TERMINAL_SUCCESS.has(node.status)) {
+    return { symbol: '✓', label: node.status === 'degraded' ? '降级完成' : '完成', tone: 'border-emerald-300 bg-emerald-50 text-emerald-700' };
+  }
+  if (TERMINAL_FAILURE.has(node.status)) {
+    return { symbol: '!', label: node.status === 'cancelled' ? '已取消' : '失败', tone: 'border-rose-300 bg-rose-50 text-rose-700' };
+  }
+  if (ACTIVE.has(node.status)) {
+    return { symbol: '●', label: node.status === 'retry_wait' ? '等待重试' : '执行中', tone: 'border-indigo-300 bg-indigo-50 text-indigo-700' };
+  }
+  return { symbol: '○', label: '等待', tone: 'border-slate-200 bg-white/75 text-slate-500' };
+}
+
+function compactMetric(node: MultiAgentNodeProgress) {
+  const metrics = [];
+  if (node.durationMs !== null) metrics.push(`${(node.durationMs / 1_000).toFixed(1)}s`);
+  if (node.tokenUsage.totalTokens > 0) metrics.push(`${node.tokenUsage.totalTokens.toLocaleString('zh-CN')} tokens`);
+  return metrics.join(' · ');
+}
+
+function AgentNodeCard({ node }: { node: MultiAgentNodeProgress }) {
+  const status = agentStatus(node);
+  const metric = compactMetric(node);
+  return (
+    <div
+      className={`min-w-0 rounded-xl border px-3 py-2 text-left shadow-sm ${status.tone}`}
+      title={node.artifact?.storagePath ?? node.error?.message ?? undefined}
+    >
+      <div className="flex items-center justify-between gap-2">
+        <span className="truncate text-[11px] font-semibold">{AGENT_LABELS[node.key] ?? node.key}</span>
+        <span className="shrink-0 text-[10px] font-semibold"><span aria-hidden="true">{status.symbol}</span> {status.label}</span>
+      </div>
+      {metric ? <p className="mt-1 truncate text-[10px] opacity-75">{metric}</p> : null}
+      {node.error?.message ? <p className="mt-1 line-clamp-1 text-[10px] text-rose-700">{node.error.message}</p> : null}
+    </div>
+  );
+}
+
+export function MultiAgentDAGProgress({ progress }: { progress: MultiAgentProgress }) {
+  if (!progress.enabled) return null;
+  const byKey = new Map(progress.nodes.map((node) => [node.key, node]));
+  const waves = [
+    ['fundamental_research', 'technical_analysis', 'risk_precheck'],
+    ['risk_crosscheck'],
+    ['synthesis'],
+    ['workspace_generation'],
+  ].map((keys) => keys.map((key) => byKey.get(key)).filter((node): node is MultiAgentNodeProgress => Boolean(node)));
+  if (waves.every((wave) => wave.length === 0)) return null;
+
+  return (
+    <div className="mt-3 rounded-2xl border border-white/80 bg-white/60 px-3 py-3 shadow-sm backdrop-blur-sm" aria-label="多 Agent 执行图">
+      <div className="mb-2 flex items-center justify-between gap-3 text-[11px]">
+        <span className="font-semibold text-slate-700">Multi-Agent Mission DAG</span>
+        <span className="text-slate-500">独立上下文 · 结构化交接</span>
+      </div>
+      <div className="flex flex-col items-stretch gap-1.5 sm:flex-row sm:items-center">
+        {waves.map((wave, waveIndex) => wave.length > 0 ? (
+          <div key={waveIndex} className="contents">
+            {waveIndex > 0 ? <span className="self-center text-xs text-slate-400" aria-hidden="true">→</span> : null}
+            <div className={`grid min-w-0 flex-1 gap-1.5 ${wave.length > 1 ? 'grid-cols-3 sm:grid-cols-1' : ''}`}>
+              {wave.map((node) => <AgentNodeCard key={node.key} node={node} />)}
+            </div>
+          </div>
+        ) : null)}
+      </div>
+    </div>
+  );
+}
 
 export function getDashboardGenerationWaitingCopy(mode: DashboardGenerationWaitingMode) {
   return WAITING_COPY[mode];
@@ -179,11 +265,13 @@ export function DashboardGenerationWaiting({
   message,
   step,
   accentColor,
+  multiAgent,
 }: {
   mode: DashboardGenerationWaitingMode;
   message: string;
   step?: string | null;
   accentColor: string;
+  multiAgent?: MultiAgentProgress;
 }) {
   const reduceMotion = useReducedMotion();
   const copy = getDashboardGenerationWaitingCopy(mode);
@@ -282,6 +370,7 @@ export function DashboardGenerationWaiting({
           accentColor={accentColor}
           reduceMotion={reduceMotion}
         />
+        {multiAgent ? <MultiAgentDAGProgress progress={multiAgent} /> : null}
         <p className="mt-3 text-xs leading-5 text-slate-500 sm:text-[13px]">
           {copy.helper}
         </p>

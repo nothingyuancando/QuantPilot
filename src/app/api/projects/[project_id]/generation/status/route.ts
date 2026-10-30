@@ -11,7 +11,11 @@ import {
 } from '@/lib/quant/generation-terminal';
 import { readQuantGenerationState } from '@/lib/quant/generation-state';
 import { readQuantValidationReport } from "@/lib/quant/validation/reports";
-import { readPiAgentAcceptedMissionSnapshot } from '@/lib/services/pi-agent-mission-store';
+import { summarizeMultiAgentError } from '@/lib/contracts/multi-agent-progress';
+import {
+  readPiAgentAcceptedMissionSnapshot,
+  readPiAgentMissionNodeProgress,
+} from '@/lib/services/pi-agent-mission-store';
 import { getProjectById } from '@/lib/services/project';
 import { listPiAgentGenerationJobs, reconcileExpiredPiAgentGenerationJobs } from '@/lib/services/pi-agent-generation-dispatch-store';
 
@@ -69,8 +73,18 @@ export async function GET(_request: Request, { params }: RouteContext) {
       acceptedMission,
       persistedPreviewUrl: project.previewUrl,
     });
+    const multiAgent = generation?.requestId
+      ? await readPiAgentMissionNodeProgress(project_id, generation.requestId)
+      : { enabled: false, missionId: null, nodes: [] };
 
-    return NextResponse.json({ success: true, data: snapshot });
+    return NextResponse.json({
+      success: true,
+      data: {
+        ...snapshot,
+        errorMessage: summarizeMultiAgentError(snapshot.errorMessage),
+        multiAgent,
+      },
+    });
   } catch (error) {
     if (error instanceof AuthorizationError) return authErrorResponse(error);
     console.error('[API] Failed to reconcile generation terminal status:', error);

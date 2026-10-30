@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   readGeneration: vi.fn(),
   readValidation: vi.fn(),
   readAcceptedMission: vi.fn(),
+  readNodeProgress: vi.fn(),
   getPreviewStatus: vi.fn(),
   listJobs: vi.fn(),
 }));
@@ -26,6 +27,7 @@ readQuantValidationReport: mocks.readValidation
 
 vi.mock('@/lib/services/pi-agent-mission-store', () => ({
   readPiAgentAcceptedMissionSnapshot: mocks.readAcceptedMission,
+  readPiAgentMissionNodeProgress: mocks.readNodeProgress,
 }));
 
 vi.mock('@/lib/services/preview', () => ({
@@ -91,6 +93,7 @@ describe('generation status acceptance gate', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.listJobs.mockResolvedValue([]);
+    mocks.readNodeProgress.mockResolvedValue({ enabled: false, missionId: null, nodes: [] });
     mocks.getProjectById.mockResolvedValue({
       id: 'project-1',
       repoPath: '/tmp/project-1',
@@ -123,6 +126,28 @@ describe('generation status acceptance gate', () => {
     const response = await GET(new Request('http://localhost'), context);
     expect((await response.json()).data).toMatchObject({ requestId: 'failed-request', status: 'failed', terminal: true,
       errorMessage: 'profile changed', previewUrl: null });
+  });
+
+  it('summarizes persisted schema diagnostics before returning them to the dashboard', async () => {
+    mocks.readGeneration.mockResolvedValue(null);
+    mocks.listJobs.mockResolvedValue([{
+      projectId: 'project-1',
+      requestId: 'failed-request',
+      status: 'failed',
+      stage: 'planning_data_prefetch',
+      queuedAt: new Date(),
+      cliPreference: 'pi',
+      errorMessage: JSON.stringify([
+        { path: ['asOf'], message: 'Invalid ISO datetime', pattern: '/very-long-regex/' },
+        { path: ['claims', 0, 'id'], message: 'Required' },
+      ]),
+    }]);
+
+    const response = await GET(new Request('http://localhost'), context);
+
+    expect((await response.json()).data.errorMessage).toBe(
+      'Specialist output schema mismatch: asOf: Invalid ISO datetime; claims.0.id: Required',
+    );
   });
 
   it('fails closed when the current PI Agent request has no accepted receipt', async () => {

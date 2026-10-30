@@ -284,6 +284,7 @@ export interface QuantEvalRun {
       unattestedCaseIds?: string[];
       frameworkVersion?: string | null;
       buildRevision?: string | null;
+      orchestrationMode?: QuantEvalOrchestrationMode;
     };
     suite?: {
       mode: QuantEvalExecutionMode;
@@ -380,6 +381,7 @@ export interface QuantEvalDashboardData {
   latestRun: QuantEvalRun | null;
   modelComparison: QuantEvalModelComparison[];
   skillVersionImpact: QuantEvalSkillVersionImpact[];
+  multiAgentComparison: QuantEvalMultiAgentComparison;
   assurance: {
     mutation: {
       createdAt: string;
@@ -473,6 +475,7 @@ export interface QuantEvalQueueItem {
   concurrency: number;
   repeat: number;
   mode: QuantEvalExecutionMode;
+  orchestrationMode: QuantEvalOrchestrationMode;
   selectedCases: string[];
   limit: number | null;
   keepProjects: boolean;
@@ -485,6 +488,18 @@ export interface QuantEvalQueueItem {
 }
 
 export type QuantEvalQueueStatus = QuantEvalQueueItem['status'];
+export type QuantEvalOrchestrationMode = 'single_agent' | 'multi_agent';
+
+export interface QuantEvalMultiAgentComparison {
+  available: boolean;
+  comparisonKey: string | null;
+  singleAgentRunId: string | null;
+  multiAgentRunId: string | null;
+  passRateDelta: number | null;
+  averageScoreDelta: number | null;
+  durationDeltaMs: number | null;
+  totalTokenDelta: number | null;
+}
 
 export interface QuantEvalModelComparison {
   key: string;
@@ -520,6 +535,7 @@ export interface StartQuantEvalOptions {
   concurrency?: number;
   repeat?: number;
   mode?: QuantEvalExecutionMode;
+  orchestrationMode?: QuantEvalOrchestrationMode;
   selectedCases?: string[];
   limit?: number | null;
   keepProjects?: boolean;

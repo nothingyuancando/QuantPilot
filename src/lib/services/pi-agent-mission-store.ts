@@ -15,6 +15,10 @@ import type {
   PiAgentAcceptedMissionSnapshot,
 } from '@/lib/agent/mission';
 import { PI_AGENT_MISSION_STATUSES } from '@/lib/agent/mission';
+import {
+  summarizeMultiAgentError,
+  type MultiAgentProgress,
+} from '@/lib/contracts/multi-agent-progress';
 import { hashPiAgentProvenance } from '@/lib/services/pi-agent-provenance';
 
 const SHA256_PATTERN = /^sha256:[a-f0-9]{64}$/;
@@ -278,8 +282,17 @@ export async function ensurePiAgentMission(input: {
             nodeKey: node.key,
             nodeType: node.type,
             effect: node.effect,
+            executor: node.executor ?? null,
+            agentProfileId: node.agentProfileId ?? null,
+            profileVersion: node.agentProfileVersion ?? null,
+            workspacePolicy: node.workspacePolicy ?? null,
+            concurrencyGroup: node.concurrency?.group ?? null,
+            priority: node.concurrency?.priority ?? 0,
+            maxAttempts: node.failurePolicy?.maxAttempts ?? node.budget.maxAttempts,
             status: node.dependencies.length === 0 ? 'running' : 'pending',
             dependencies: inputJson(node.dependencies),
+            joinPolicy: node.joinPolicy ? inputJson(node.joinPolicy) : undefined,
+            failurePolicy: node.failurePolicy ? inputJson(node.failurePolicy) : undefined,
             allowedTools: inputJson(node.allowedTools),
             requiredSkillSections: inputJson(node.requiredSkillSections),
             inputArtifacts: inputJson(node.inputArtifacts),
@@ -338,6 +351,95 @@ export async function readPiAgentMissionSpec(
   } });
   if (!mission) throw new PiAgentMissionStateError('MISSION_NOT_FOUND', 'Mission not found.');
   return mission.spec as unknown as PiAgentMissionSpec;
+}
+
+export async function readPiAgentMissionNodeProgress(
+  projectId: string,
+  requestId: string,
+): Promise<MultiAgentProgress> {
+  const mission = await prisma.agentMission.findFirst({
+    where: { projectId, requestId },
+    select: {
+      id: true,
+      nodes: {
+        orderBy: { createdAt: 'asc' },
+        select: {
+          nodeKey: true,
+          nodeType: true,
+          agentProfileId: true,
+          dependencies: true,
+          status: true,
+          attemptCount: true,
+          errorCode: true,
+          errorMessage: true,
+          startedAt: true,
+          finishedAt: true,
+          artifacts: {
+            where: { status: 'accepted' },
+            orderBy: { createdAt: 'desc' },
+            take: 1,
+            select: {
+              id: true,
+              schemaId: true,
+              storagePath: true,
+              contentSha256: true,
+              byteLength: true,
+            },
+          },
+          attempts: {
+            orderBy: { attempt: 'asc' },
+            select: {
+              agentRun: {
+                select: {
+                  model: true,
+                  provider: true,
+                  inputTokens: true,
+                  outputTokens: true,
+                  totalTokens: true,
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  });
+  if (!mission) return { enabled: false, missionId: null, nodes: [] };
+  const nodes = mission.nodes.map((node) => {
+    const usage = node.attempts.reduce((total, attempt) => ({
+      inputTokens: total.inputTokens + (attempt.agentRun?.inputTokens ?? 0),
+      outputTokens: total.outputTokens + (attempt.agentRun?.outputTokens ?? 0),
+      totalTokens: total.totalTokens + (attempt.agentRun?.totalTokens ?? 0),
+    }), { inputTokens: 0, outputTokens: 0, totalTokens: 0 });
+    const latestRun = node.attempts.findLast((attempt) => Boolean(attempt.agentRun))?.agentRun ?? null;
+    return {
+      key: node.nodeKey,
+      type: node.nodeType,
+      profileId: node.agentProfileId,
+      dependencies: Array.isArray(node.dependencies)
+        ? node.dependencies.filter((value): value is string => typeof value === 'string')
+        : [],
+      status: node.status,
+      attemptCount: node.attemptCount,
+      model: latestRun?.model ?? null,
+      provider: latestRun?.provider ?? null,
+      startedAt: node.startedAt?.toISOString() ?? null,
+      finishedAt: node.finishedAt?.toISOString() ?? null,
+      durationMs: node.startedAt && node.finishedAt
+        ? Math.max(0, node.finishedAt.getTime() - node.startedAt.getTime())
+        : null,
+      tokenUsage: usage,
+      artifact: node.artifacts[0] ?? null,
+      error: node.errorCode || node.errorMessage
+        ? { code: node.errorCode, message: summarizeMultiAgentError(node.errorMessage) }
+        : null,
+    };
+  });
+  return {
+    enabled: nodes.some((node) => node.profileId?.startsWith('quantpilot.finance.') === true),
+    missionId: mission.id,
+    nodes,
+  };
 }
 
 export async function markPiAgentMissionNode(input: {

@@ -6,12 +6,12 @@
 
 | 你要做什么 | 从这里开始 | 继续阅读 |
 | --- | --- | --- |
-| 第一次运行项目 | [快速启动](../README.md#快速启动) | [详细启动与健康检查](learning/01-quick-start.md)、[配置指南](configuration.md) |
-| 零基础完成第一项研究 | [新手实操：从零完成第一项研究](learning/first-research.md) | 学会选择模型、提交问题、检查证据与验收，再追问改进 |
+| 第一次运行项目 | [快速启动](../README.md#快速启动) | [配置指南](configuration.md)、[故障排查](troubleshooting.md) |
+| 零基础完成第一项研究 | [第一次研究](../README.md#第一次研究) | 学会选择模型、提交问题、检查证据与验收，再追问改进 |
 | 研究行情、指标或策略 | [策略平台](strategy-platform-guide.md) | [行情数据源](market-data-source-knowledge.md)、[数据字典](data-dictionary.md) |
 | 持续跟踪观察池与日报 | [研究自动化](research-automation-guide.md) | [工作空间交付契约](generated-workspace-contract.md) |
-| 安装、编辑、发布或回退 Skill | [Skills 治理](skills-governance.md) | [Skills 编写教程](learning/07-skills-authoring.md) |
-| 评测 Agent 或排查交付失败 | [评测指南](evals-guide.md) | [生成链路](learning/02-ai-workspace-generation.md)、[故障排查](troubleshooting.md) |
+| 安装、编辑、发布或回退 Skill | [Skills 治理](skills-governance.md) | [工作空间交付契约](generated-workspace-contract.md) |
+| 评测 Agent 或排查交付失败 | [评测指南](evals-guide.md) | [PI Agent 架构](pi-agent.md)、[故障排查](troubleshooting.md) |
 | 接手代码或扩展业务域 | [项目结构](project-structure.md) | [模块边界](module-boundaries.md)、[Data Agent 架构](data-agent-architecture.md) |
 | 配置登录与多人访问 | [认证、权限与配额](authentication.md) | [配置指南](configuration.md) |
 | 发布、回滚或处理数据 | [生产发布手册](release-runbook.md) | [数据生命周期](data-lifecycle.md)、[运行手册](operations-runbook.md) |
@@ -33,6 +33,7 @@
 | 文档 | 解决的问题 |
 | --- | --- |
 | [架构总览](architecture.md) | Web、Agent、市场数据、存储与验证如何协作 |
+| [Multi-Agent Mission DAG](multi-agent-orchestration.md) | 并行专家、结构化交接、单 Writer、节点租约与灰度启用方式 |
 | [Data Agent 与 Domain Pack](data-agent-architecture.md) | 通用合同、Agent Profile、业务域和交付能力如何组合 |
 | [PI Agent 采用与治理边界](pi-agent-migration.md) | 执行内核与 QuantPilot 治理层分别承担什么 |
 | [PI Agent 架构](pi-agent.md) | 运行状态、上下文、工具、审批、用量与恢复机制 |
@@ -63,21 +64,18 @@
 | [数据生命周期](data-lifecycle.md) | 数据所有权、测试隔离、保留、备份与清理 |
 | [故障排查](troubleshooting.md) | 按现象定位端口、数据库、生成、Skills 和验证问题 |
 
-## 按顺序学习
+## 推荐阅读顺序
 
-第一次使用产品，先完成[第一项研究实操](learning/first-research.md)，不必预先读懂全部架构。准备接手代码时，再按以下顺序学习；已有明确问题时直接使用上方专题。课程说明与产品截图见 [教学目录](learning/README.md)。
+第一次使用产品，先按根 README 完成[快速启动](../README.md#快速启动)和[第一次研究](../README.md#第一次研究)，不必预先读懂全部架构。准备接手代码时，建议依次阅读：
 
-1. [项目学习地图](learning/00-project-study-map.md)：建立产品、数据、生成与质量的整体认识。
-2. [本地启动与健康检查](learning/01-quick-start.md)：启动组件并判断是否可用。
-3. [AI 工作空间生成链路](learning/02-ai-workspace-generation.md)：跟随一次任务理解规划、数据、生成与验收。
-4. [市场数据与策略平台](learning/03-market-data-and-strategy-platform.md)：理解数据覆盖、指标、补数和策略入口。
-5. [Skills 与可视化看板](learning/04-skills-and-visual-dashboard.md)：理解技能如何约束交付内容和呈现。
-6. [评测、运维与质量门](learning/05-evaluation-and-operations.md)：执行评测并阅读失败证据。
-7. [开发者协作手册](learning/06-developer-playbook.md)：按模块边界修改代码并完成验证。
-8. [Skills 编写与迭代](learning/07-skills-authoring.md)：维护技能源码、行为契约和版本。
+1. [架构总览](architecture.md)：建立 Web、Agent、数据、存储与验证的整体认识。
+2. [项目结构](project-structure.md)与[模块边界](module-boundaries.md)：找到修改位置并理解依赖约束。
+3. [Data Agent 架构](data-agent-architecture.md)与 [PI Agent 架构](pi-agent.md)：理解规划、执行与验收链路。
+4. [Multi-Agent Mission DAG](multi-agent-orchestration.md)：理解 Specialist、结构化交接和单 Writer 治理。
+5. [评测指南](evals-guide.md)与[运行手册](operations-runbook.md)：执行评测并阅读失败证据。
 
 ## 维护文档
 
-使用方式、接口、环境变量或能力边界改变时，同步更新对应专题；根 README 保留首次使用所需信息，本页维护完整索引，教学文档负责解释步骤与原因。写法见 [文档风格指南](documentation-style-guide.md)。
+使用方式、接口、环境变量或能力边界改变时，同步更新对应专题；根 README 保留首次使用所需信息，本页维护完整索引。写法见 [文档风格指南](documentation-style-guide.md)。
 
-提交前运行 `npm run check:docs` 检查本地链接。页面截图放在 `docs/learning/assets/`；配置使用占位凭据，不写入真实密钥、个人路径或未脱敏日志。
+提交前运行 `npm run check:docs` 检查本地链接。配置使用占位凭据，不写入真实密钥、个人路径或未脱敏日志。

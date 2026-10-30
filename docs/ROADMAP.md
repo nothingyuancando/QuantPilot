@@ -67,7 +67,7 @@ QuantPilot 已具备较完整的 Agent 执行与治理基础。下一阶段围�
 
 先解决发生最多或阻断交付的问题。页面持续显示已知阶段和可执行动作；失败后保留输入与证据，刷新能恢复状态。桌面与移动端均验证等待、失败、重试和权限拒绝，不只验收成功截图。
 
-对应入口：[研究闭环指标](ops-platform-guide.md)、[Agent 评测](evals-guide.md)、[第一次研究教程](learning/first-research.md)。
+对应入口：[研究闭环指标](ops-platform-guide.md)、[Agent 评测](evals-guide.md)、[第一次研究](../README.md#第一次研究)。
 
 ## P1-A：可信数据底座
 
@@ -122,7 +122,7 @@ QuantPilot 已具备较完整的 Agent 执行与治理基础。下一阶段围�
 
 真实模型评测与确定性合同评测分别出具证据。评测数据不能进入被评模型的提示或知识检索；新增 Provider 需证明解决现有瓶颈。
 
-对应入口：[Skills 治理](skills-governance.md)、[Skills 编写教程](learning/07-skills-authoring.md)、[评测指南](evals-guide.md)。
+对应入口：[Skills 治理](skills-governance.md)、[工作空间交付契约](generated-workspace-contract.md)、[评测指南](evals-guide.md)。
 
 ## 贯穿全程：结构、性能、安全与生产
 

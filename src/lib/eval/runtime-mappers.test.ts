@@ -49,6 +49,7 @@ describe('evaluation runtime mappers', () => {
       concurrency: 1,
       repeat: 1,
       mode: 'contract',
+      orchestrationMode: 'single_agent',
       selectedCases: ['case-a'],
       createdAt: '2026-07-13T00:00:00.000Z',
     });

@@ -4,6 +4,7 @@ import type { Prisma } from '@prisma/client';
 import { evalQueueStore, queueCreateData } from './queue-store';
 import { prisma } from '@/lib/db/client';
 import { buildModelComparison, buildSkillVersionImpact } from './analysis';
+import { buildMultiAgentComparison } from './multi-agent-comparison';
 import { evaluateEvalJudgeCalibration, type EvalJudgeCalibrationSample } from './judge-calibration';
 import { getQuantEvalCases, getQuantEvalSets } from './cases';
 import { getEvalEvaluatorDefinition } from './evaluators';
@@ -172,6 +173,9 @@ function buildVirtualQueueItem(options: StartQuantEvalOptions = {}): QuantEvalQu
     concurrency: normalizeEvalConcurrency(options.concurrency),
     repeat: normalizeEvalRepeat(options.repeat),
     mode,
+    orchestrationMode: options.orchestrationMode === 'multi_agent'
+      ? 'multi_agent'
+      : 'single_agent',
     selectedCases,
     limit,
     keepProjects: Boolean(options.keepProjects),
@@ -550,6 +554,30 @@ export async function startQuantEvalRun(options: StartQuantEvalOptions = {}): Pr
   return evalQueueStore.enqueue(item);
 }
 
+export async function startQuantEvalComparison(
+  options: StartQuantEvalOptions = {},
+): Promise<{ singleAgent: QuantEvalQueueItem; multiAgent: QuantEvalQueueItem }> {
+  const createdAt = new Date().toISOString();
+  const base = buildVirtualQueueItem({ ...options, mode: 'e2e' });
+  const singleAgent: QuantEvalQueueItem = {
+    ...base,
+    id: uniqueId('eval-single-agent'),
+    createdAt,
+    orchestrationMode: 'single_agent',
+  };
+  const multiAgent: QuantEvalQueueItem = {
+    ...base,
+    id: uniqueId('eval-multi-agent'),
+    createdAt,
+    orchestrationMode: 'multi_agent',
+  };
+  await prisma.$transaction([
+    prisma.evalQueueItem.create({ data: queueCreateData(singleAgent) }),
+    prisma.evalQueueItem.create({ data: queueCreateData(multiAgent) }),
+  ]);
+  return { singleAgent, multiAgent };
+}
+
 export async function updateQuantEvalSchedule(input: UpdateQuantEvalScheduleInput): Promise<QuantEvalScheduleConfig> {
   return evalQueueStore.withScheduleLock(async (tx) => {
     const current = await readScheduleConfig(tx);
@@ -688,6 +716,7 @@ export async function getQuantEvalDashboardData(): Promise<QuantEvalDashboardDat
     latestRun,
     modelComparison: buildModelComparison(runs),
     skillVersionImpact: buildSkillVersionImpact(runs),
+    multiAgentComparison: buildMultiAgentComparison(runs),
     assurance: {
       mutation: mutation
         ? {

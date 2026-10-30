@@ -125,6 +125,7 @@ type EvalEvaluatorViewProps = {
   onEvalSetSelect: (evalSetId: string) => void;
   onSimulateFlow: () => void;
   onStart: () => void;
+  onStartComparison: () => void;
 };
 
 export function EvalEvaluatorView({
@@ -142,6 +143,7 @@ export function EvalEvaluatorView({
   onEvalSetSelect,
   onSimulateFlow,
   onStart,
+  onStartComparison,
 }: EvalEvaluatorViewProps) {
   const selectedEvaluator = getEvalEvaluatorOption(selectedEvaluatorId);
   const activeConcurrency = clampConcurrency(concurrency, selectedEvaluator.maxConcurrency);
@@ -180,6 +182,12 @@ export function EvalEvaluatorView({
               {isStarting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
               {selectedEvaluator.executionMode === 'e2e' ? '启动 DeepSeek E2E' : '启动契约评测'}
             </Button>
+            {selectedEvaluator.executionMode === 'e2e' ? (
+              <Button onClick={onStartComparison} disabled={isStarting} variant="secondary" className="gap-2">
+                <Layers3 className="h-4 w-4" />
+                单 / 多 Agent 对照
+              </Button>
+            ) : null}
           </div>
         </div>
       </section>

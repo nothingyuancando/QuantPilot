@@ -1,9 +1,16 @@
 import type { QuantGenerationTerminalSnapshot } from '@/lib/quant/generation-terminal';
+import {
+  EMPTY_MULTI_AGENT_PROGRESS,
+  type MultiAgentProgress,
+} from '@/lib/contracts/multi-agent-progress';
 import { planPreviewReconciliation } from './preview-reconciliation';
 import { readPreviewValidation } from './preview-validation';
 import { generationStatusUpdate, INITIAL_PREVIEW_STATE, type GenerationPreviewState } from './generation-preview-state';
 
 type Operation = { epoch: number; abort: AbortController };
+type GenerationStatusSnapshot = QuantGenerationTerminalSnapshot & {
+  multiAgent?: MultiAgentProgress;
+};
 type Options = {
   projectId: string;
   isVisualCheck: boolean;
@@ -81,7 +88,7 @@ export class GenerationPreviewController {
     const response = await this.request(operation, this.endpoint('generation/status'), { cache: 'no-store' });
     if (!response.ok) return null;
     const payload = await response.json();
-    const snapshot = (payload?.data ?? null) as QuantGenerationTerminalSnapshot | null;
+    const snapshot = (payload?.data ?? null) as GenerationStatusSnapshot | null;
     if (!this.current(operation) || !snapshot) return null;
     if (this.expectedRequestId && snapshot.requestId !== this.expectedRequestId) return null;
     return snapshot;
@@ -110,6 +117,7 @@ export class GenerationPreviewController {
       isRunning: true,
       quantValidationState: 'running',
       activeStep: 'request_received',
+      multiAgent: EMPTY_MULTI_AGENT_PROGRESS,
       previewInitializationMessage: '正在接收研究请求并准备执行计划...',
     });
   };
@@ -221,6 +229,7 @@ export class GenerationPreviewController {
     try {
       const snapshot = await this.snapshot(operation);
       if (!snapshot || !this.current(operation)) return;
+      this.update({ multiAgent: snapshot.multiAgent ?? EMPTY_MULTI_AGENT_PROGRESS });
       const plan = planPreviewReconciliation({
         projectId: this.options.projectId,
         snapshot,

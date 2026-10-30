@@ -15,12 +15,12 @@ vi.mock('./runtime', () => ({
 }));
 
 const claim = {
-  item: { id: 'queued-1', mode: 'contract', model: 'captured-model' },
+  item: { id: 'queued-1', mode: 'contract', model: 'captured-model', orchestrationMode: 'single_agent' },
   leaseToken: 'attempt-1', attemptCount: 1,
 } as EvalQueueClaim;
 const metadata = {
   queue: { id: 'queued-1', leaseToken: 'attempt-1' },
-  suite: { mode: 'contract' }, runtime: { configuredModel: 'captured-model' },
+  suite: { mode: 'contract' }, runtime: { configuredModel: 'captured-model', orchestrationMode: 'single_agent' },
 };
 
 describe('evaluation report ownership', () => {
@@ -31,6 +31,7 @@ describe('evaluation report ownership', () => {
       { queue: { ...metadata.queue, leaseToken: 'old-attempt' } },
       { suite: { mode: 'e2e' } },
       { runtime: { configuredModel: 'new-default-model' } },
+      { runtime: { ...metadata.runtime, orchestrationMode: 'multi_agent' } },
       { queue: null },
     ]) {
       expect(reportBelongsToClaim({ metadata: { ...metadata, ...changed } }, claim)).toBe(false);

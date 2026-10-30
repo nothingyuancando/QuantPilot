@@ -11,7 +11,7 @@ export const PI_AGENT_MISSION_STATUSES = [
 
 export type PiAgentMissionStatus = (typeof PI_AGENT_MISSION_STATUSES)[number];
 
-export const PI_AGENT_MISSION_NODE_KEYS = [
+export const PI_AGENT_CORE_MISSION_NODE_KEYS = [
   'planning',
   'data_prefetch',
   'workspace_generation',
@@ -20,19 +20,34 @@ export const PI_AGENT_MISSION_NODE_KEYS = [
   'preview_readiness',
 ] as const;
 
-export type PiAgentMissionNodeKey = (typeof PI_AGENT_MISSION_NODE_KEYS)[number];
+export type PiAgentCoreMissionNodeKey = (typeof PI_AGENT_CORE_MISSION_NODE_KEYS)[number];
+
+/**
+ * Mission definitions may add domain-owned specialist nodes. Keys are checked
+ * by the trusted compiler before they are materialized; they are not supplied
+ * by a model or browser client.
+ */
+export type PiAgentMissionNodeKey = string;
 
 export type PiAgentMissionNodeStatus =
   | 'pending'
+  | 'ready'
+  | 'claimed'
   | 'running'
+  | 'waiting_approval'
+  | 'retry_wait'
   | 'candidate_complete'
   | 'passed'
+  | 'succeeded'
+  | 'degraded'
   | 'failed'
+  | 'cancelled'
   | 'skipped';
 
 export type PiAgentMissionNodeEffect =
   | 'pure'
   | 'read'
+  | 'artifact_write'
   | 'workspace_write'
   | 'platform_write'
   | 'verification';
@@ -67,11 +82,56 @@ export interface PiAgentMissionNodeBudget {
   timeoutMs: number;
 }
 
+export type PiAgentMissionNodeExecutor =
+  | 'platform'
+  | 'model_agent'
+  | 'validator'
+  | 'verifier';
+
+export type PiAgentMissionWorkspacePolicy =
+  | 'none'
+  | 'read_only'
+  | 'artifact_only'
+  | 'single_writer';
+
+export interface PiAgentMissionJoinPolicy {
+  type: 'all' | 'any' | 'quorum';
+  quorum?: number;
+  allowDegradedInputs: boolean;
+}
+
+export interface PiAgentMissionFailurePolicy {
+  mode: 'fail_fast' | 'continue_degraded' | 'retry';
+  maxAttempts: number;
+  retryBackoffMs: number;
+}
+
+export interface PiAgentMissionConcurrencyPolicy {
+  group: string;
+  maxParallel?: number;
+  priority: number;
+}
+
 export interface PiAgentMissionNodeSpec {
   key: PiAgentMissionNodeKey;
-  type: 'planner' | 'data' | 'writer' | 'validator' | 'verifier' | 'preview';
+  type:
+    | 'planner'
+    | 'data'
+    | 'analyst'
+    | 'synthesizer'
+    | 'writer'
+    | 'validator'
+    | 'verifier'
+    | 'preview';
+  executor?: PiAgentMissionNodeExecutor;
+  agentProfileId?: string;
+  agentProfileVersion?: string;
   effect: PiAgentMissionNodeEffect;
+  workspacePolicy?: PiAgentMissionWorkspacePolicy;
   dependencies: PiAgentMissionNodeKey[];
+  joinPolicy?: PiAgentMissionJoinPolicy;
+  failurePolicy?: PiAgentMissionFailurePolicy;
+  concurrency?: PiAgentMissionConcurrencyPolicy;
   allowedTools: string[];
   requiredSkillSections: string[];
   inputArtifacts: string[];

@@ -135,7 +135,7 @@ const DASHBOARD_REPAIR_CHECK_IDS = new Set([
 export type PiAgentPreparedIntent = 'standard' | 'custom';
 
 const PREPARED_CUSTOMIZATION_ACTION =
-  '(?:修改|调整|重构|优化|美化|定制|自定义|替换|改为|改成|不要|去掉|取消|新增|增加|添加|删除|移动|移到|重排|折叠|展开|隐藏|避免)';
+  '(?:修改|调整|重构|优化|美化|定制|自定义|替换|改为|改成|去掉|取消|新增|增加|添加|删除|移动|移到|重排|折叠|展开|隐藏|避免)';
 const PREPARED_CUSTOMIZATION_TARGET =
   '(?:页面|看板|布局|样式|视觉|界面|交互|动效|响应式|配色|颜色|字体|字号|指标卡|卡片|首屏|导航|侧栏|模块|图表|区域|主题|数据源渠道)';
 const PREPARED_CUSTOMIZATION_SIGNAL = new RegExp(
@@ -1067,7 +1067,7 @@ async function executePiAgentPhase(
       ),
       preWriteReadOnlyTurnThreshold: positiveIntegerEnv(
         'PI_AGENT_PRE_WRITE_READ_ONLY_TURNS',
-        3,
+        phaseGraph.lane === 'model_custom' ? 4 : 3,
       ),
       postWriteReadOnlyTurnThreshold: positiveIntegerEnv(
         'PI_AGENT_POST_WRITE_READ_ONLY_TURNS',
@@ -1191,9 +1191,12 @@ async function executePiAgentPhase(
       messages,
       runId: runInstanceId,
       signal: abortController.signal,
-      temperature: 0.2,
+      temperature: phaseGraph.lane === 'model_custom' ? 0 : 0.2,
       reasoning: {
-        enabled: phaseGraph.providerMode === 'model' && process.env.PI_AGENT_REASONING !== '0',
+        enabled:
+          phaseGraph.providerMode === 'model' &&
+          phaseGraph.lane !== 'model_custom' &&
+          process.env.PI_AGENT_REASONING !== '0',
         effort: phaseGraph.reasoningEffort,
       },
       metadata: {

@@ -120,6 +120,9 @@ export function normalizeMetadata(report: JsonRecord, results: QuantEvalResult[]
       unattestedCaseIds: stringArray(runtime.unattestedCaseIds),
       frameworkVersion: stringValue(runtime.frameworkVersion) || null,
       buildRevision: stringValue(runtime.buildRevision) || null,
+      orchestrationMode: runtime.orchestrationMode === 'multi_agent'
+        ? 'multi_agent'
+        : 'single_agent',
     },
     suite: {
       mode: stringValue(suite.mode) === 'e2e' ? 'e2e' : 'contract',
@@ -322,6 +325,7 @@ export function mapDbQueueItem(record: {
   concurrency?: number | null;
   repeat?: number | null;
   mode?: string | null;
+  orchestrationMode?: string | null;
   selectedCases: unknown;
   limit: number | null;
   keepProjects: boolean;
@@ -348,6 +352,9 @@ export function mapDbQueueItem(record: {
     concurrency: normalizeEvalConcurrency(record.concurrency),
     repeat: Math.min(5, Math.max(1, Math.floor(numberValue(record.repeat, 1)))),
     mode: record.mode === 'e2e' ? 'e2e' : 'contract',
+    orchestrationMode: record.orchestrationMode === 'multi_agent'
+      ? 'multi_agent'
+      : 'single_agent',
     selectedCases: stringArray(record.selectedCases),
     limit: record.limit,
     keepProjects: record.keepProjects,

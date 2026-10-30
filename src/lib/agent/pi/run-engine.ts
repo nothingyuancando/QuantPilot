@@ -771,6 +771,7 @@ export class PiAgentRunEngine {
     let turnEffects: PiAgentToolEffect[] = [];
     let turnProgressFingerprints: string[] = [];
     let successfulWorkspaceWritesThisTurn = 0;
+    let successfulReadsThisTurn = 0;
     const abortRun = (
       status: PiAgentRunStatus,
       code: string,
@@ -889,6 +890,9 @@ export class PiAgentRunEngine {
             turnProgressFingerprints.push(fingerprint);
 
             if (execution.result.ok) {
+              if (policy.effect === 'read') {
+                successfulReadsThisTurn += 1;
+              }
               if (policy.effect === 'workspace_write') {
                 successfulWorkspaceWrites += 1;
                 successfulWorkspaceWritesThisTurn += 1;
@@ -1251,12 +1255,11 @@ export class PiAgentRunEngine {
         successfulWorkspaceWrites === 0 &&
         tool?.terminal === true
       ) {
-        abortRun(
-          'failed',
-          'WORKSPACE_WRITE_REQUIRED',
-          'PI Agent must complete a governed workspace write before submit_result.',
-        );
-        return { block: true, reason: stopError?.message };
+        return {
+          block: true,
+          reason:
+            'PI Agent must complete a governed workspace write before submit_result. Continue the run with the smallest valid workspace write, then call submit_result again.',
+        };
       }
 
       const approvalSignal = signal;
@@ -1401,7 +1404,15 @@ export class PiAgentRunEngine {
       afterToolCall,
       shouldStopAfterTurn: () => {
         if (terminalToolCall || stopStatus) return true;
-        if (turn >= limits.maxTurns) {
+        // A normal assistant text response with no tool calls is already a
+        // terminal turn when the run does not require a terminal tool. Let
+        // the upstream PI loop finish it naturally instead of converting the
+        // successful final turn into MAX_TURNS merely because it used the
+        // last available turn.
+        if (
+          turn >= limits.maxTurns &&
+          (requireTerminalTool || toolCallsThisTurn > 0)
+        ) {
           abortRun(
             'max_turns',
             'MAX_TURNS',
@@ -1474,6 +1485,7 @@ export class PiAgentRunEngine {
               turnEffects = [];
               turnProgressFingerprints = [];
               successfulWorkspaceWritesThisTurn = 0;
+              successfulReadsThisTurn = 0;
               await emit({ type: 'turn_started', turn });
               break;
             case 'message_end':
@@ -1625,19 +1637,21 @@ export class PiAgentRunEngine {
               break;
             case 'turn_end': {
               const readOnlyTurn =
-                turnEffects.length > 0 &&
+                successfulReadsThisTurn > 0 &&
                 turnEffects.every((effect) => effect === 'read');
               if (successfulWorkspaceWritesThisTurn > 0) {
                 consecutiveReadOnlyTurns = 0;
               } else if (readOnlyTurn) {
                 consecutiveReadOnlyTurns += 1;
-              } else {
-                consecutiveReadOnlyTurns = 0;
               }
               const threshold = successfulWorkspaceWrites === 0
                 ? preWriteReadOnlyTurnThreshold
                 : postWriteReadOnlyTurnThreshold;
-              readToolsDisabled = consecutiveReadOnlyTurns >= threshold;
+              // Once the exploration gate closes, assistant-only turns must
+              // not reopen it. A successful governed workspace write is the
+              // only signal that starts a new bounded read window.
+              readToolsDisabled =
+                readToolsDisabled || consecutiveReadOnlyTurns >= threshold;
               const workspaceFingerprint = createHash('sha256')
                 .update(String(successfulWorkspaceWrites))
                 .update('\0')

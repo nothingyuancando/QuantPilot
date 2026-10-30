@@ -1,4 +1,8 @@
 import type { QuantGenerationTerminalSnapshot } from '@/lib/quant/generation-terminal';
+import {
+  EMPTY_MULTI_AGENT_PROGRESS,
+  type MultiAgentProgress,
+} from '@/lib/contracts/multi-agent-progress';
 
 export type QuantValidationState = 'unknown' | 'running' | 'passed' | 'failed';
 export type QuantValidationRepairPlan = {
@@ -17,6 +21,7 @@ export type GenerationPreviewState = {
   isRunning: boolean;
   agentWorkComplete: boolean;
   activeStep: NonNullable<QuantGenerationTerminalSnapshot['activeStep']> | null;
+  multiAgent: MultiAgentProgress;
 };
 
 export const INITIAL_PREVIEW_STATE: GenerationPreviewState = {
@@ -29,6 +34,7 @@ export const INITIAL_PREVIEW_STATE: GenerationPreviewState = {
   isRunning: false,
   agentWorkComplete: false,
   activeStep: null,
+  multiAgent: EMPTY_MULTI_AGENT_PROGRESS,
 };
 
 type StatusUpdate = {

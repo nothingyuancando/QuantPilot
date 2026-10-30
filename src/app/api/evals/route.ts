@@ -9,6 +9,7 @@ import {
   checkQuantEvalSchedule,
   getQuantEvalDashboardData,
   simulateQuantEvalFlow,
+  startQuantEvalComparison,
   startQuantEvalRun,
   updateQuantEvalSchedule,
 } from '@/lib/eval';
@@ -56,12 +57,30 @@ export async function POST(request: Request) {
         concurrency: typeof body.concurrency === 'number' ? body.concurrency : undefined,
         repeat: typeof body.repeat === 'number' ? body.repeat : undefined,
         mode: body.mode === 'e2e' ? 'e2e' : 'contract',
+        orchestrationMode: body.orchestrationMode === 'multi_agent'
+          ? 'multi_agent'
+          : 'single_agent',
         selectedCases: Array.isArray(body.selectedCases) ? body.selectedCases.map(String) : [],
         limit: typeof body.limit === 'number' ? body.limit : null,
         keepProjects: Boolean(body.keepProjects),
       });
 
       return NextResponse.json({ success: true, data: item });
+    }
+
+    if (action === 'start-multi-agent-comparison') {
+      const items = await startQuantEvalComparison({
+        cli: typeof body.cli === 'string' ? body.cli : undefined,
+        model: typeof body.model === 'string' ? body.model : undefined,
+        reasoningEffort: typeof body.reasoningEffort === 'string' ? body.reasoningEffort : undefined,
+        evaluatorId: typeof body.evaluatorId === 'string' ? body.evaluatorId : undefined,
+        concurrency: typeof body.concurrency === 'number' ? body.concurrency : undefined,
+        repeat: typeof body.repeat === 'number' ? body.repeat : undefined,
+        selectedCases: Array.isArray(body.selectedCases) ? body.selectedCases.map(String) : [],
+        limit: typeof body.limit === 'number' ? body.limit : null,
+        keepProjects: Boolean(body.keepProjects),
+      });
+      return NextResponse.json({ success: true, data: items });
     }
 
     if (action === 'create-case') {
@@ -110,6 +129,9 @@ export async function POST(request: Request) {
         concurrency: typeof body.concurrency === 'number' ? body.concurrency : undefined,
         repeat: typeof body.repeat === 'number' ? body.repeat : undefined,
         mode: body.mode === 'e2e' ? 'e2e' : 'contract',
+        orchestrationMode: body.orchestrationMode === 'multi_agent'
+          ? 'multi_agent'
+          : 'single_agent',
         selectedCases: Array.isArray(body.selectedCases) ? body.selectedCases.map(String) : [],
         limit: typeof body.limit === 'number' ? body.limit : null,
         keepProjects: Boolean(body.keepProjects),

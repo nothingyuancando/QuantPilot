@@ -186,6 +186,9 @@ describe('PI Agent terminal ownership', () => {
     expect(classifyPiAgentPreparedIntent(
       '指标卡避免松散空白，内部数据源渠道默认折叠。',
     )).toBe('custom');
+    expect(classifyPiAgentPreparedIntent(
+      '如果基本面和技术面存在冲突，不要强行统一结论，请在看板中单独展示争议观点。',
+    )).toBe('standard');
   });
 
   beforeEach(async () => {
@@ -764,13 +767,14 @@ describe('PI Agent terminal ownership', () => {
       maxRunCacheMissInputTokens: 24_000,
       maxRunPreparedInputTokens: 144_000,
       progressStallTurns: 1,
-      preWriteReadOnlyTurnThreshold: 3,
+      preWriteReadOnlyTurnThreshold: 4,
       postWriteReadOnlyTurnThreshold: 2,
       requireTerminalTool: true,
       requireWorkspaceWriteBeforeTerminal: true,
     }));
     expect(mocks.run).toHaveBeenCalledWith(expect.objectContaining({
-      reasoning: { enabled: true, effort: 'medium' },
+      temperature: 0,
+      reasoning: { enabled: false, effort: 'low' },
       metadata: expect.objectContaining({
         skillPhase: 'workspace-generation',
       }),

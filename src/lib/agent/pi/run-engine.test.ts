@@ -119,6 +119,33 @@ function terminalTool(
 }
 
 describe('PiAgentRunEngine', () => {
+  it('accepts a no-tool text response completed on the final allowed turn', async () => {
+    const provider = new ScriptedProvider([[
+      { type: 'text_delta', delta: '{"status":"done"}' },
+      usage({ input: 10, output: 4 }),
+      { type: 'finish', reason: 'stop' },
+    ]]);
+    const engine = new PiAgentRunEngine({
+      provider,
+      model: 'test-model',
+      requireTerminalTool: false,
+      maxTurns: 1,
+      tools: [],
+    });
+
+    const result = await engine.run({
+      runId: 'single-turn-structured-output',
+      messages: initialMessages,
+      maxTurns: 1,
+    });
+
+    expect(result).toMatchObject({
+      status: 'completed',
+      output: '{"status":"done"}',
+      turns: 1,
+    });
+  });
+
   it('rejects unsafe run identifiers before starting PI', async () => {
     const provider = new ScriptedProvider([]);
     const engine = new PiAgentRunEngine({
@@ -228,6 +255,103 @@ describe('PiAgentRunEngine', () => {
       'tool_started:submit_result',
       'tool_completed:submit_result',
     ]);
+  });
+
+  it('recovers when submit_result is attempted before the required workspace write', async () => {
+    const provider = new ScriptedProvider([
+      toolTurn([{
+        id: 'submit-too-early',
+        name: 'submit_result',
+        arguments: '{"artifact":"app/page.tsx"}',
+      }]),
+      toolTurn([{
+        id: 'write-after-feedback',
+        name: 'write_file',
+        arguments: '{"path":"app/page.tsx"}',
+      }]),
+      toolTurn([{
+        id: 'submit-after-write',
+        name: 'submit_result',
+        arguments: '{"artifact":"app/page.tsx"}',
+      }]),
+    ]);
+    const write = vi.fn(async () => ({ ok: true as const, data: {} }));
+    const submit = vi.fn(async () => ({ ok: true as const, data: {} }));
+    const engine = new PiAgentRunEngine({
+      provider,
+      model: 'test-model',
+      requireWorkspaceWriteBeforeTerminal: true,
+      tools: [
+        {
+          name: 'write_file',
+          description: 'Write a governed file.',
+          inputSchema: objectSchema(
+            { path: { type: 'string' } },
+            ['path'],
+          ),
+          effect: 'workspace_write',
+          execute: write,
+        },
+        terminalTool(submit),
+      ],
+    });
+
+    const result = await engine.run({
+      runId: 'recover-early-submit',
+      messages: initialMessages,
+      maxTurns: 4,
+    });
+
+    expect(result).toMatchObject({ status: 'completed', turns: 3 });
+    expect(write).toHaveBeenCalledOnce();
+    expect(submit).toHaveBeenCalledOnce();
+    expect(provider.requests[1].messages).toContainEqual(expect.objectContaining({
+      role: 'tool',
+      toolCallId: 'submit-too-early',
+      content: expect.stringContaining('Continue the run with the smallest valid workspace write'),
+    }));
+  });
+
+  it('does not consume the read-only convergence window when a read tool fails', async () => {
+    const provider = new ScriptedProvider([
+      toolTurn([{ id: 'read-success-1', name: 'inspect', arguments: '{}' }]),
+      toolTurn([{ id: 'read-too-large', name: 'inspect', arguments: '{}' }]),
+      toolTurn([{ id: 'read-success-2', name: 'inspect', arguments: '{}' }]),
+      [
+        { type: 'text_delta', delta: 'done' },
+        usage({ input: 1, output: 1 }),
+        { type: 'finish', reason: 'stop' },
+      ],
+    ]);
+    const inspect = vi.fn()
+      .mockResolvedValueOnce({ ok: true as const, data: { page: 1 } })
+      .mockResolvedValueOnce({
+        ok: false as const,
+        error: { code: 'TOOL_OUTPUT_TOO_LARGE', message: 'Narrow the query.' },
+      })
+      .mockResolvedValueOnce({ ok: true as const, data: { page: 2 } });
+    const engine = new PiAgentRunEngine({
+      provider,
+      model: 'test-model',
+      requireTerminalTool: false,
+      preWriteReadOnlyTurnThreshold: 2,
+      tools: [{
+        name: 'inspect',
+        description: 'Read a bounded view.',
+        inputSchema: objectSchema(),
+        effect: 'read',
+        execute: inspect,
+      }],
+    });
+
+    const result = await engine.run({
+      runId: 'failed-read-does-not-close-gate',
+      messages: initialMessages,
+      maxTurns: 4,
+    });
+
+    expect(result).toMatchObject({ status: 'completed', turns: 4 });
+    expect(inspect).toHaveBeenCalledTimes(3);
   });
 
   it('runs approval only after the original arguments pass the PI schema', async () => {

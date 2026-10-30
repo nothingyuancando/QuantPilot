@@ -38,6 +38,7 @@ import {
   QUANTPILOT_AGENT_PROFILE_ID,
 } from "@/lib/domains/finance/agent-profile";
 import { getApplicationDataAgentCatalog } from "@/lib/quant/data-agent-application";
+import { FINANCE_MULTI_AGENT_ARTIFACTS } from "@/lib/domains/finance/mission-definition";
 
 export interface FinanceGenerationPayload {
   effectiveInstruction: string;
@@ -426,6 +427,12 @@ async function executeFinanceGeneration(
   });
   await updateProjectActivity(job.projectId);
   const cliRuntime: CliRuntime = await import("@/lib/services/cli/pi-agent");
+  const isMultiAgentMission = missionSpec.nodes.some(
+    (node) => node.key === "synthesis" && node.executor === "model_agent",
+  );
+  const writerInstruction = isMultiAgentMission
+    ? `${payload.effectiveInstruction}\n\nTrusted orchestration requirement: before editing, read ${FINANCE_MULTI_AGENT_ARTIFACTS.synthesis} with query_json. Use its evidence-bound consensus, disputes, risk disclosure, and dashboard brief as the sole multi-Agent handoff. Do not invent claims absent from that artifact.`
+    : payload.effectiveInstruction;
 
   await runValidationAfterExecution({
     execution: (async () => {
@@ -462,7 +469,7 @@ async function executeFinanceGeneration(
         return cliRuntime.initializeNextJsProject(
           job.projectId,
           workspace,
-          payload.effectiveInstruction,
+          writerInstruction,
           payload.selectedModel,
           job.requestId,
           personalization,
@@ -472,7 +479,7 @@ async function executeFinanceGeneration(
       return cliRuntime.applyChanges(
         job.projectId,
         workspace,
-        payload.effectiveInstruction,
+        writerInstruction,
         payload.selectedModel,
         job.requestId,
         payload.processedImages,

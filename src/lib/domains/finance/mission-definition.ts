@@ -22,6 +22,14 @@ export const FINANCE_REQUIRED_VALIDATION_CHECK_IDS = [
 
 export const FINANCE_ALLOWED_VALIDATION_WARNINGS = ['evidence_files'] as const;
 
+export const FINANCE_MULTI_AGENT_ARTIFACTS = {
+  fundamental: '.data-agent/multi-agent/fundamental-research.json',
+  technical: '.data-agent/multi-agent/technical-analysis.json',
+  riskPrecheck: '.data-agent/multi-agent/risk-precheck.json',
+  riskCrosscheck: '.data-agent/multi-agent/risk-crosscheck.json',
+  synthesis: '.data-agent/multi-agent/synthesis.json',
+} as const;
+
 const SUBJECT_ARTIFACTS = [
   '.data-agent/workspace.json',
   '.data-agent/profile.json',
@@ -267,5 +275,139 @@ export function createFinanceMissionDefinition(input: {
       { id: 'derived_evidence_present', kind: 'derived_evidence_present', required: true },
       { id: 'preview_http_ready', kind: 'preview_http_ready', required: true },
     ],
+  };
+}
+
+/**
+ * Fixed, trusted v1 multi-Agent topology. It is intentionally separate from
+ * the current production definition until the durable node Worker is enabled;
+ * callers cannot inject nodes or profiles through request data.
+ */
+export function createFinanceMultiAgentMissionDefinition(input: {
+  maxRepairAttempts: number;
+  expectedArtifacts?: readonly string[];
+}): PiAgentMissionDefinition {
+  const base = createFinanceMissionDefinition(input);
+  const dataPrefetch = base.nodes.find((node) => node.key === 'data_prefetch');
+  const writer = base.nodes.find((node) => node.key === 'workspace_generation');
+  if (!dataPrefetch || !writer) throw new Error('Finance Mission base topology is incomplete.');
+
+  const specialistBudget = budget({
+    maxAttempts: 2,
+    maxToolCalls: 8,
+    maxInputTokens: 48_000,
+    maxOutputTokens: 8_000,
+    timeoutMs: 300_000,
+  });
+  const specialist = (
+    key: string,
+    profile: string,
+    output: string,
+  ): PiAgentMissionNodeSpec => ({
+    key,
+    type: 'analyst',
+    executor: 'model_agent',
+    agentProfileId: profile,
+    agentProfileVersion: '1.0.0',
+    effect: 'artifact_write',
+    workspacePolicy: 'artifact_only',
+    dependencies: ['data_prefetch'],
+    joinPolicy: { type: 'all', allowDegradedInputs: false },
+    failurePolicy: { mode: 'retry', maxAttempts: 2, retryBackoffMs: 1_000 },
+    concurrency: { group: 'finance-research', maxParallel: 3, priority: 50 },
+    allowedTools: ['query_json', 'query_text_file'],
+    requiredSkillSections: ['quant-market-data', 'data-quality'],
+    inputArtifacts: [...dataPrefetch.outputArtifacts],
+    outputArtifacts: [output],
+    budget: specialistBudget,
+    acceptancePredicates: ['derived_evidence_present'],
+  });
+
+  const fundamental = specialist(
+    'fundamental_research',
+    'quantpilot.finance.fundamental',
+    FINANCE_MULTI_AGENT_ARTIFACTS.fundamental,
+  );
+  const technical = specialist(
+    'technical_analysis',
+    'quantpilot.finance.technical',
+    FINANCE_MULTI_AGENT_ARTIFACTS.technical,
+  );
+  const riskPrecheck = specialist(
+    'risk_precheck',
+    'quantpilot.finance.risk-precheck',
+    FINANCE_MULTI_AGENT_ARTIFACTS.riskPrecheck,
+  );
+  const riskCrosscheck: PiAgentMissionNodeSpec = {
+    ...specialist(
+      'risk_crosscheck',
+      'quantpilot.finance.risk-crosscheck',
+      FINANCE_MULTI_AGENT_ARTIFACTS.riskCrosscheck,
+    ),
+    dependencies: ['fundamental_research', 'technical_analysis', 'risk_precheck'],
+    inputArtifacts: [
+      FINANCE_MULTI_AGENT_ARTIFACTS.fundamental,
+      FINANCE_MULTI_AGENT_ARTIFACTS.technical,
+      FINANCE_MULTI_AGENT_ARTIFACTS.riskPrecheck,
+    ],
+    concurrency: { group: 'finance-review', maxParallel: 1, priority: 70 },
+  };
+  const synthesis: PiAgentMissionNodeSpec = {
+    key: 'synthesis',
+    type: 'synthesizer',
+    executor: 'model_agent',
+    agentProfileId: 'quantpilot.finance.synthesis',
+    agentProfileVersion: '1.0.0',
+    effect: 'artifact_write',
+    workspacePolicy: 'artifact_only',
+    dependencies: ['fundamental_research', 'technical_analysis', 'risk_crosscheck'],
+    joinPolicy: { type: 'all', allowDegradedInputs: false },
+    failurePolicy: { mode: 'retry', maxAttempts: 2, retryBackoffMs: 1_000 },
+    concurrency: { group: 'finance-synthesis', maxParallel: 1, priority: 80 },
+    allowedTools: ['query_json'],
+    requiredSkillSections: ['dashboard-visualization'],
+    inputArtifacts: [
+      FINANCE_MULTI_AGENT_ARTIFACTS.fundamental,
+      FINANCE_MULTI_AGENT_ARTIFACTS.technical,
+      FINANCE_MULTI_AGENT_ARTIFACTS.riskCrosscheck,
+    ],
+    outputArtifacts: [FINANCE_MULTI_AGENT_ARTIFACTS.synthesis],
+    budget: budget({
+      maxAttempts: 2,
+      maxToolCalls: 6,
+      maxInputTokens: 48_000,
+      maxOutputTokens: 10_000,
+      timeoutMs: 300_000,
+    }),
+    acceptancePredicates: ['derived_evidence_present'],
+  };
+
+  const nodes = base.nodes.flatMap((node) => {
+    if (node.key === 'workspace_generation') {
+      return [{
+        ...node,
+        dependencies: ['synthesis'],
+        inputArtifacts: [...node.inputArtifacts, FINANCE_MULTI_AGENT_ARTIFACTS.synthesis],
+      }];
+    }
+    if (node.key === 'data_prefetch') {
+      return [node, fundamental, technical, riskPrecheck, riskCrosscheck, synthesis];
+    }
+    return [node];
+  });
+  return {
+    ...base,
+    id: `${base.id}.multi-agent`,
+    version: '2.0.0',
+    artifacts: [
+      ...base.artifacts,
+      ...Object.values(FINANCE_MULTI_AGENT_ARTIFACTS).map((path) => ({
+        path,
+        role: 'evidence' as const,
+        mutability: 'derived' as const,
+        required: true,
+      })),
+    ],
+    nodes,
   };
 }

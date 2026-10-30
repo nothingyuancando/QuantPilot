@@ -47,6 +47,7 @@ describe('PI Agent PhaseGraph', () => {
 
     expect(custom).toMatchObject({
       lane: 'model_custom',
+      reasoningEffort: 'low',
       budgets: {
         maxTurns: 8,
         maxToolCalls: 12,

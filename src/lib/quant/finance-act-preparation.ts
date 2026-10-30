@@ -51,6 +51,10 @@ import {
   publishQuantPipelineToolMessage,
   publishQuantPipelineToolStart,
 } from "@/lib/quant/chat-act-support";
+import {
+  isFinanceMultiAgentEnabled,
+  runFinanceMultiAgentResearch,
+} from "@/lib/quant/finance-multi-agent";
 
 export interface FinanceActPreparationInput {
   projectId: string;
@@ -120,6 +124,7 @@ export async function prepareFinanceActGenerationUnderLease(
     publishWorkspaceProgress,
   } = input;
   let usePrefetchedSelectionDashboard = false;
+  const multiAgentEnabled = isFinanceMultiAgentEnabled();
   let missionContext: PiAgentMissionContext | null = null;
   const projectIntegrationScope = getProjectIntegrationScope(project_id);
   let governedKnowledgePreparation: GovernedKnowledgePreparation | null = null;
@@ -659,11 +664,12 @@ export async function prepareFinanceActGenerationUnderLease(
             false,
           );
         }
-        usePrefetchedSelectionDashboard = canUsePrefetchedSelectionDashboard({
-          instruction: effectiveInstruction,
-          runPlan,
-          prefetchSkipped: prefetch.skipped,
-        });
+        usePrefetchedSelectionDashboard = !multiAgentEnabled &&
+          canUsePrefetchedSelectionDashboard({
+            instruction: effectiveInstruction,
+            runPlan,
+            prefetchSkipped: prefetch.skipped,
+          });
         await updateQuantGenerationStep({
           projectPath,
           projectId: project_id,
@@ -688,6 +694,29 @@ export async function prepareFinanceActGenerationUnderLease(
           nodeKey: "data_prefetch",
           status: prefetch.skipped ? "skipped" : "passed",
         });
+        if (multiAgentEnabled) {
+          await updateQuantGenerationStep({
+            projectPath,
+            projectId: project_id,
+            requestId,
+            stepId: "agent_execution",
+            status: "running",
+            summary: "基本面、技术分析与风险专家正在并行研究。",
+          });
+          await runFinanceMultiAgentResearch({
+            mission: missionContext,
+            selectedModel,
+            assertActive: input.assertActive,
+          });
+          await updateQuantGenerationStep({
+            projectPath,
+            projectId: project_id,
+            requestId,
+            stepId: "agent_execution",
+            status: "running",
+            summary: "多 Agent 专家研究与综合结果已通过结构化交接，准备生成工作空间。",
+          });
+        }
         missionContext = await markQuantPiAgentMissionNode({
           mission: missionContext,
           nodeKey: "workspace_generation",

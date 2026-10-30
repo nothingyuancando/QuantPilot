@@ -4,7 +4,7 @@ QuantPilot 的 skills 采用“少量规范 Skill ID + tgz 包发布 + PI Agent 
 
 仓库根目录 `.pi/**` 和 `config/pi-agent-skill-capsules.json` 提供内置发布基线。在线维护使用平台独立持久化目录中的草稿、不可变完整快照和原子生效指针；PI Agent 按平台保存的项目版本记录编译，未固定的旧项目使用平台当前发布版。完整性由版本、registry/lock、快照 manifest 与 SHA-256 校验提供，目前没有密码学签名。工作空间 `.pi/skills/` 是参考镜像，不能通过修改镜像或安装收据选择可执行内容。
 
-如果是第一次学习或修改 skill，先读 [Skills 编写与迭代教程](learning/07-skills-authoring.md)。本文偏治理规范，教程会更详细解释 skill 是什么、怎么写、怎么发布、怎么把用户反馈沉淀成长期规则。
+如果是第一次学习或修改 Skill，先阅读本文的核心原则、目录边界与发布流程，再在隔离草稿中进行修改。本文同时说明 Skill 是什么、怎么发布，以及如何把用户反馈沉淀成长期规则。
 
 ## 核心原则
 

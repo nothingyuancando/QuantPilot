@@ -1,5 +1,6 @@
 export * from './constants';
 export * from './evaluators';
+export * from './multi-agent-comparison';
 export * from './oracles';
 export * from './regression';
 export * from './runtime';

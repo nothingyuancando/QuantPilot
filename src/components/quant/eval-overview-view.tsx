@@ -534,6 +534,44 @@ export function EvalOverviewView({
         </div>
       </section>
 
+      <Panel
+        title="单 Agent / 多 Agent 对照"
+        icon={<Layers3 className="h-4 w-4 text-primary" />}
+        action={(
+          <Button variant="ghost" size="sm" onClick={() => onNavigate('evaluator')} className="h-8 gap-1 text-xs text-muted-foreground">
+            发起对照
+            <ArrowRight className="h-3.5 w-3.5" />
+          </Button>
+        )}
+      >
+        {dashboard.multiAgentComparison.available ? (
+          <div className="grid gap-px bg-border/40 sm:grid-cols-2 xl:grid-cols-4">
+            {[
+              { label: '通过率变化', value: dashboard.multiAgentComparison.passRateDelta, suffix: '%', lowerIsBetter: false },
+              { label: '平均分变化', value: dashboard.multiAgentComparison.averageScoreDelta, suffix: '', lowerIsBetter: false },
+              { label: '耗时变化', value: dashboard.multiAgentComparison.durationDeltaMs === null ? null : dashboard.multiAgentComparison.durationDeltaMs / 1_000, suffix: 's', lowerIsBetter: true },
+              { label: 'Token 变化', value: dashboard.multiAgentComparison.totalTokenDelta, suffix: '', lowerIsBetter: true },
+            ].map(({ label, value, suffix, lowerIsBetter }) => {
+              const improved = value !== null && (lowerIsBetter ? value < 0 : value > 0);
+              const regressed = value !== null && (lowerIsBetter ? value > 0 : value < 0);
+              return (
+              <div key={label} className="bg-card px-4 py-4">
+                <p className="text-xs text-muted-foreground">{label}</p>
+                <p className={`mt-1 text-xl font-bold tabular-nums ${improved ? 'text-emerald-500' : regressed ? 'text-rose-500' : 'text-foreground'}`}>
+                  {Number(value) > 0 ? '+' : ''}{value ?? '—'}{suffix}
+                </p>
+              </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="flex flex-col gap-3 px-4 py-5 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm text-muted-foreground">尚无使用相同模型、评测器和用例集的成对 E2E 报告。</p>
+            <Button variant="outline" size="sm" onClick={() => onNavigate('evaluator')}>配置对照评测</Button>
+          </div>
+        )}
+      </Panel>
+
       <section className="grid grid-cols-2 gap-3 xl:grid-cols-5">
         <StatTile
           icon={<Activity className="h-4 w-4" />}

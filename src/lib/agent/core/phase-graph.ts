@@ -135,11 +135,14 @@ export function createPiAgentPhaseGraph(
       'model_custom',
       'inspect-edit-submit',
       'model',
-      'medium',
+      'low',
       {
-        // Three bounded reads, two edits and submit_result fill six turns when
-        // a provider emits one tool call per turn. Reserve two more turns for
-        // one schema-correction cycle without widening the tool surface.
+        // Four bounded read turns (including one failed-query recovery), two
+        // edits and submit_result fit comfortably
+        // within the run. Hidden reasoning is disabled for this lane because
+        // workspace edits need tool convergence, not long-form deliberation.
+        // Reserve the remaining turns for one schema-correction cycle when
+        // a provider emits one tool call per turn.
         maxTurns: 8,
         maxToolCalls: 12,
         maxOutputTokens: 8_000,
