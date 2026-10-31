@@ -220,12 +220,16 @@ async def get_a_share_short_term_candidates(
     trade_date,
     mode: ScreenerMode,
     limit: int,
+    symbols: list[str] | None = None,
+    markets: list[str] | None = None,
 ) -> AShareScreenerResponse:
     return await screen_a_share_short_term_candidates(
         universe_id=universe_id.strip(),
         trade_date=trade_date,
         mode=mode,
         limit=limit,
+        symbols=symbols,
+        markets=markets,
     )
 
 

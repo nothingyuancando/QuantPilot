@@ -66,6 +66,11 @@ model Project {
   externalMemoryUses             ExternalMemoryUse[]
   personalMemoryFeedbackReceipts PersonalMemoryFeedbackReceipt[]
   governedKnowledgeUses          GovernedKnowledgeUse[]
+  researchWatchlists             ResearchWatchlist[]
+  researchReportRuns             ResearchReportRun[]
+  researchReports                ResearchReport[]
+  notificationChannels           NotificationChannel[]
+  notificationDeliveries         NotificationDelivery[]
 
   @@index([ownerId])
   @@index([agentProfileId])
@@ -1041,6 +1046,8 @@ model StrategyScanJob {
 
 model ResearchWatchlist {
   id                     String   @id @default(cuid())
+  projectId              String?  @map("project_id")
+  createdById            String?  @map("created_by_id")
   name                   String
   description            String?
   universeId             String?  @map("universe_id")
@@ -1056,7 +1063,9 @@ model ResearchWatchlist {
 
   runs    ResearchReportRun[]
   reports ResearchReport[]
+  project Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
 
+  @@index([projectId, updatedAt])
   @@index([status])
   @@index([updatedAt])
   @@map("research_watchlists")
@@ -1064,6 +1073,8 @@ model ResearchWatchlist {
 
 model ResearchReportRun {
   id           String    @id @default(cuid())
+  projectId    String?   @map("project_id")
+  createdById  String?   @map("created_by_id")
   watchlistId  String?   @map("watchlist_id")
   status       String
   runType      String    @map("run_type")
@@ -1080,7 +1091,9 @@ model ResearchReportRun {
   watchlist  ResearchWatchlist?     @relation(fields: [watchlistId], references: [id], onDelete: SetNull)
   reports    ResearchReport[]
   deliveries NotificationDelivery[]
+  project Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
 
+  @@index([projectId, startedAt])
   @@index([watchlistId])
   @@index([status])
   @@index([startedAt])
@@ -1089,6 +1102,8 @@ model ResearchReportRun {
 
 model ResearchReport {
   id              String   @id @default(cuid())
+  projectId       String?  @map("project_id")
+  createdById     String?  @map("created_by_id")
   runId           String   @map("run_id")
   watchlistId     String?  @map("watchlist_id")
   title           String
@@ -1108,7 +1123,9 @@ model ResearchReport {
   run        ResearchReportRun      @relation(fields: [runId], references: [id], onDelete: Cascade)
   watchlist  ResearchWatchlist?     @relation(fields: [watchlistId], references: [id], onDelete: SetNull)
   deliveries NotificationDelivery[]
+  project Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
 
+  @@index([projectId, createdAt])
   @@index([runId])
   @@index([watchlistId])
   @@index([reportDate])
@@ -1117,6 +1134,8 @@ model ResearchReport {
 
 model NotificationChannel {
   id          String   @id @default(cuid())
+  projectId   String?  @map("project_id")
+  createdById String?  @map("created_by_id")
   name        String
   channelType String   @map("channel_type")
   status      String   @default("configured")
@@ -1127,7 +1146,9 @@ model NotificationChannel {
   updatedAt   DateTime @updatedAt @map("updated_at")
 
   deliveries NotificationDelivery[]
+  project Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
 
+  @@index([projectId, updatedAt])
   @@index([channelType])
   @@index([status])
   @@map("notification_channels")
@@ -1135,6 +1156,8 @@ model NotificationChannel {
 
 model NotificationDelivery {
   id             String    @id @default(cuid())
+  projectId      String?   @map("project_id")
+  createdById    String?   @map("created_by_id")
   idempotencyKey String?   @unique @map("idempotency_key")
   runId          String?   @map("run_id")
   reportId       String?   @map("report_id")
@@ -1151,7 +1174,9 @@ model NotificationDelivery {
   run     ResearchReportRun?   @relation(fields: [runId], references: [id], onDelete: SetNull)
   report  ResearchReport?      @relation(fields: [reportId], references: [id], onDelete: SetNull)
   channel NotificationChannel? @relation(fields: [channelId], references: [id], onDelete: SetNull)
+  project Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
 
+  @@index([projectId, createdAt])
   @@index([runId])
   @@index([reportId])
   @@index([channelId])

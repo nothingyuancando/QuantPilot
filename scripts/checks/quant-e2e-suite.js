@@ -329,6 +329,23 @@ function attestProductControlEvidence(evidence, options) {
     const acceptance = result?.missionAcceptance;
     const runs = Array.isArray(execution?.runs) ? execution.runs : [];
     const acceptedRun = runs.find((run) => run?.id === execution?.acceptedSourceRunId);
+    const specialists = runs.filter((run) => run !== acceptedRun);
+    const hasSpecialists = specialists.length > 0;
+    const usageFields = ['inputTokens', 'outputTokens', 'totalTokens', 'cachedInputTokens', 'cacheMissInputTokens', 'reasoningTokens'];
+    // Rendering identity belongs to the accepted writer. All specialist and
+    // retry costs must still reconcile with the aggregate execution usage.
+    const writer = hasSpecialists ? acceptedRun : execution;
+    if (hasSpecialists && (
+      specialists.some((run) => !run?.id?.startsWith('pi_specialist_') ||
+        !['completed', 'failed'].includes(run.status) ||
+        run.requestId !== execution?.requestId ||
+        run.frameworkVersion !== options.frameworkVersion ||
+        run.buildRevision !== options.buildRevision) ||
+      usageFields.some((field) => runs.some((run) => !nonNegativeInteger(run?.usage?.[field])) ||
+        execution?.usage?.[field] !== runs.reduce((sum, run) => sum + run.usage[field], 0))
+    )) {
+      problems.push(`${caseId} specialist lineage 或累计模型用量无效。`);
+    }
     if (result?.passed !== true || !Array.isArray(result?.failures) || result.failures.length > 0) {
       problems.push(`${caseId} product control 未通过。`);
     }
@@ -336,10 +353,10 @@ function attestProductControlEvidence(evidence, options) {
       result?.agentExecuted !== true ||
       execution?.executed !== true ||
       execution?.cli !== 'pi' ||
-      execution?.provider !== 'pi-agent-trusted-renderer' ||
-      execution?.model !== 'pi-agent-deterministic-renderer-v1' ||
+      writer?.provider !== 'pi-agent-trusted-renderer' ||
+      writer?.model !== 'pi-agent-deterministic-renderer-v1' ||
       result?.requestId !== execution?.requestId ||
-      execution?.turns !== 2 ||
+      writer?.turns !== 2 ||
       !validTimeWindow(execution?.startedAt, execution?.completedAt)
     ) {
       problems.push(`${caseId} 没有证明 deterministic_standard PI Agent 执行。`);
@@ -369,10 +386,9 @@ function attestProductControlEvidence(evidence, options) {
       problems.push(`${caseId} 缺少当前 Mission accepted receipt。`);
     }
     if (
-      runs.length !== 1 ||
+      runs.length < 1 ||
       !Array.isArray(execution?.runIds) ||
-      execution.runIds.length !== 1 ||
-      execution.runIds[0] !== acceptedRun?.id ||
+      !sameStrings([...execution.runIds].sort(), runs.map((run) => run.id).sort()) ||
       acceptedRun?.status !== 'candidate_complete' ||
       acceptedRun?.provider !== 'pi-agent-trusted-renderer' ||
       acceptedRun?.model !== 'pi-agent-deterministic-renderer-v1' ||
@@ -384,7 +400,7 @@ function attestProductControlEvidence(evidence, options) {
     ) {
       problems.push(`${caseId} deterministic candidate lineage 无效。`);
     }
-    const usage = execution?.usage;
+    const usage = writer?.usage;
     if (
       !nonNegativeInteger(usage?.inputTokens) ||
       !nonNegativeInteger(usage?.outputTokens) ||
@@ -407,7 +423,7 @@ function attestProductControlEvidence(evidence, options) {
     ) {
       problems.push(`${caseId} deterministic standard 必须提供零模型 Token 证明。`);
     }
-    const tools = execution?.tools;
+    const tools = hasSpecialists ? acceptedRun?.tools : execution?.tools;
     if (
       tools?.total !== 2 ||
       tools?.succeeded !== 2 ||
@@ -421,6 +437,7 @@ function attestProductControlEvidence(evidence, options) {
         [...tools.succeededToolNames].sort(),
         ['apply_dashboard_spec', 'submit_result'],
       )
+      || execution?.tools?.unexpectedFailureCount !== 0
     ) {
       problems.push(`${caseId} 缺少成功 workspace write/submit_result 或存在工具失败。`);
     }

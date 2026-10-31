@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 const http = require('http');
+const { createHash } = require('crypto');
 
 const port = Number.parseInt(process.env.PORT || process.env.QUANTPILOT_CONTRACT_MARKET_PORT || '8000', 10);
 const host = process.env.QUANTPILOT_CONTRACT_MARKET_HOST || '127.0.0.1';
@@ -191,12 +192,12 @@ function technical(security, limit, query = new URLSearchParams()) {
   };
 }
 
-function financials(security) {
+function financials(security, cutoff) {
   const reports = [0, 1, 2, 3].map((offset) => ({
     symbol: security.symbol,
     name: security.name,
     secucode: `${security.symbol}.${security.market}`,
-    report_date: `${2026 - Math.floor(offset / 2)}-${offset % 2 === 0 ? '03-31' : '12-31'}T00:00:00Z`,
+    report_date: `${2026 - Math.ceil(offset / 2)}-${offset % 2 === 0 ? '03-31' : '12-31'}T00:00:00Z`,
     data_type: offset % 2 === 0 ? '一季报' : '年报',
     basic_eps: String(round(2.5 - offset * 0.12, 2)),
     revenue: String(52000000000 - offset * 2200000000),
@@ -208,7 +209,7 @@ function financials(security) {
     operating_cash_flow_per_share: String(round(3.2 - offset * 0.1, 2)),
     notice_date: `${2026 - Math.floor(offset / 2)}-04-25T00:00:00Z`,
     source: 'contract_snapshot',
-  }));
+  })).filter(report => !cutoff || Date.parse(report.notice_date) <= Date.parse(cutoff));
   return {
     symbol: security.symbol,
     asset_type: security.asset_type,
@@ -216,14 +217,21 @@ function financials(security) {
     currency: 'CNY',
     timezone: 'Asia/Shanghai',
     reports,
-    as_of: reports[0].report_date,
+    as_of: cutoff ?? reports[0]?.report_date,
+    ...(cutoff ? { knowledge: {
+      point_in_time: true, cutoff,
+      data_version: createHash('sha256').update(JSON.stringify(reports)).digest('hex'),
+      synthetic: true,
+      vintages: reports.map(report => ({ observed_at: report.notice_date, available_at: report.notice_date })),
+    } } : {}),
     fetched_at: now,
     data_quality: dataQuality(),
   };
 }
 
-function fundamentalIndicators(security) {
-  const reports = financials(security).reports;
+function fundamentalIndicators(security, cutoff) {
+  const archived = financials(security, cutoff);
+  const reports = archived.reports;
   const points = reports.map((report) => ({
     report_date: report.report_date,
     data_type: report.data_type,
@@ -260,7 +268,8 @@ function fundamentalIndicators(security) {
       avg_net_margin: 44.6,
       report_count: points.length,
     },
-    as_of: points[0].report_date,
+    as_of: cutoff ?? points[0].report_date,
+    ...(cutoff ? { knowledge: archived.knowledge } : {}),
     fetched_at: now,
     data_quality: dataQuality(),
   };
@@ -290,9 +299,9 @@ function announcements(security) {
   };
 }
 
-function backtest(security) {
-  const rows = bars(security, 250);
-  const points = technical(security, 250).points;
+function backtest(security, query = new URLSearchParams()) {
+  const rows = bars(security, 250, query);
+  const points = technical(security, 250, query).points;
   const equityCurve = rows.map((row, index) => ({
     date: row.date,
     close: row.close,
@@ -313,7 +322,7 @@ function backtest(security) {
     fee_bps: '5.0000',
     parameters: { fast_window: 20, slow_window: 60, fee_bps: 5 },
     period: 'daily',
-    adjustment: 'qfq',
+    adjustment: query.get('adjustment') ?? 'qfq',
     side: 'long',
     equity_curve: equityCurve,
     trades: [
@@ -353,7 +362,7 @@ function backtest(security) {
       win_rate_pct: '50.00',
       exposure_pct: '76.00',
     },
-    as_of: asOf,
+    as_of: rows.at(-1)?.date ?? asOf,
     fetched_at: now,
     metadata: { data_basis: 'versioned_contract_snapshot' },
     data_quality: dataQuality(),
@@ -456,7 +465,7 @@ const server = http.createServer(async (request, response) => {
         return;
       }
       const limit = Number.parseInt(url.searchParams.get('limit') || '120', 10);
-      if (url.searchParams.has('as_of') && ['fundamentals/financials', 'indicators/fundamental'].includes(endpoint)) {
+      if (url.searchParams.has('as_of') && process.env.QUANTPILOT_CONTRACT_MISSING_VINTAGES === '1' && ['fundamentals/financials', 'indicators/fundamental'].includes(endpoint)) {
         json(response, 404, { detail: 'Synthetic fixture has no archived financial vintages at this cutoff.' });
         return;
       }
@@ -464,10 +473,10 @@ const server = http.createServer(async (request, response) => {
         'quotes/realtime': () => quote(security),
         'quotes/history': () => history(security, limit, url.searchParams),
         'indicators/technical': () => technical(security, limit, url.searchParams),
-        'fundamentals/financials': () => financials(security),
-        'indicators/fundamental': () => fundamentalIndicators(security),
+        'fundamentals/financials': () => financials(security, url.searchParams.get('as_of')),
+        'indicators/fundamental': () => fundamentalIndicators(security, url.searchParams.get('as_of')),
         'events/announcements': () => announcements(security),
-        'backtests/ma-crossover': () => backtest(security),
+        'backtests/ma-crossover': () => backtest(security, url.searchParams),
       };
       json(response, 200, handlers[endpoint]());
       return;

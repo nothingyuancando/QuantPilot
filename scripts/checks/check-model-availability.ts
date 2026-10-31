@@ -1,8 +1,10 @@
 import fs from 'node:fs';
 import { checkModelAvailability } from '../../src/lib/platform/model-availability';
 import { PI_AGENT_DEFAULT_MODEL, getPiAgentModelDisplayName } from '../../src/lib/constants/models';
+import { loadProjectEnvironment } from '../shared/load-env';
 
 async function main() {
+  loadProjectEnvironment();
   for (const file of ['src/lib/agent/pi/run-engine.ts', 'src/lib/agent/providers/deepseek.ts',
     'src/lib/agent/providers/openai-compatible.ts', 'src/lib/agent/tools/index.ts', 'src/lib/services/cli/pi-agent.ts']) {
     if (!fs.existsSync(file)) throw new Error('PI Agent runtime files are incomplete.');

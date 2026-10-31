@@ -557,6 +557,25 @@ async function findListeningPorts(
     return new Map();
   }
 
+  if (process.platform === 'darwin') {
+    try {
+      const { stdout } = await execFileAsync('lsof', ['-nP', '-iTCP', '-sTCP:LISTEN', '-Fpn']);
+      const ports = new Map<number, number[]>();
+      let pid = 0;
+      for (const line of stdout.split('\n')) {
+        if (line.startsWith('p')) pid = Number(line.slice(1));
+        const match = line.startsWith('n') ? line.match(/:(\d+)$/) : null;
+        const port = match ? Number(match[1]) : 0;
+        if (pid > 0 && port >= startPort && port <= endPort) {
+          ports.set(port, [...new Set([...(ports.get(port) ?? []), pid])]);
+        }
+      }
+      return ports;
+    } catch {
+      return new Map();
+    }
+  }
+
   try {
     // Take one process-table snapshot for the entire preview range. Calling
     // `ss` once per candidate port can add roughly a minute to preview startup
@@ -575,6 +594,9 @@ async function findListeningPids(port: number): Promise<number[]> {
   if (process.platform === 'win32') {
     return [];
   }
+  if (process.platform === 'darwin') {
+    return (await findListeningPorts(port, port)).get(port) ?? [];
+  }
   try {
     const { stdout } = await execFileAsync('ss', ['-ltnpH', `sport = :${port}`]);
     return extractPidsFromSs(stdout);
@@ -586,6 +608,18 @@ async function findListeningPids(port: number): Promise<number[]> {
 async function isPidWithinProject(pid: number, projectPath: string): Promise<boolean> {
   if (process.platform === 'win32') {
     return false;
+  }
+
+  if (process.platform === 'darwin') {
+    try {
+      const { stdout } = await execFileAsync('lsof', ['-a', '-p', String(pid), '-d', 'cwd', '-Fn']);
+      const cwd = stdout.split('\n').find(line => line.startsWith('n'))?.slice(1);
+      if (!cwd) return false;
+      const [actual, expected] = await Promise.all([fs.realpath(cwd), fs.realpath(projectPath)]);
+      return actual === expected || actual.startsWith(`${expected}${path.sep}`);
+    } catch {
+      return false;
+    }
   }
 
   try {
@@ -1863,6 +1897,7 @@ export class PreviewManager {
     child.stderr?.on('data', recordProcessOutput);
 
     child.on('exit', (code, signal) => {
+      previewProcess.startupError ??= `Preview process exited (code: ${code ?? 'null'}, signal: ${signal ?? 'null'}).`;
       previewProcess.status = code === 0 ? 'stopped' : 'error';
       void Promise.all([
         closePreviewNetworkProxy(previewProcess.networkProxy),
@@ -1942,7 +1977,7 @@ export class PreviewManager {
       if (startupError) {
         throw new Error(startupError);
       }
-      throw new Error(`Preview server did not become ready within ${PREVIEW_CONFIG.STARTUP_TIMEOUT}ms.`);
+      throw new Error(`Preview server did not become ready within ${PREVIEW_CONFIG.STARTUP_TIMEOUT}ms.\n${previewProcess.logs.slice(-12).join('\n')}`);
     }
 
     return this.toInfo(previewProcess);

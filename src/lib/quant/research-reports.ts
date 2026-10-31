@@ -3,6 +3,9 @@ import { createHash } from 'node:crypto';
 import { Prisma, type NotificationDelivery } from '@prisma/client';
 import { prisma } from '@/lib/db/client';
 import { getRuntimeDegradationConfig } from '@/lib/config/degradation';
+import { assessResearch, candidateWithinWatchlist, canonicalResearchSymbol } from '@/lib/domains/finance/research-policy';
+import { resolveResearchTime, type QuantResearchTime } from '@/lib/domains/finance/research-time';
+import { assertResearchScope, assertSameResearchProject, scopedResearchId, type ResearchScope } from './research-scope';
 import {
   deliverResearchReportNotification,
   type ResearchNotificationChannelInput,
@@ -107,6 +110,7 @@ export interface ResearchProviderMatrixItem {
 }
 
 export interface ResearchAutomationDashboard {
+  projectId: string;
   generatedAt: string;
   summary: {
     watchlists: number;
@@ -243,23 +247,11 @@ function statusPriority(status: ResearchProviderStatus) {
   return 0;
 }
 
-function deriveRiskLevel(score: number, unavailableCount: number) {
-  if (unavailableCount >= 2 || score < 65) return 'high';
-  if (score < 78) return 'medium';
-  return 'low';
-}
-
 function riskLevelLabel(level: string) {
   if (level === 'low') return '低';
   if (level === 'high') return '高';
-  return '中';
-}
-
-function deriveRecommendation(score: number, unavailableCount: number) {
-  if (unavailableCount >= 2) return '数据不足，优先补齐证据后再行动';
-  if (score >= 82) return '谨慎积极，关注强势候选与仓位纪律';
-  if (score >= 70) return '观察为主，等待候选信号确认';
-  return '防守为主，先处理数据覆盖与风险暴露';
+  if (level === 'medium') return '中';
+  return '待评估';
 }
 
 async function fetchMarketProbe<T>(pathName: string, source: string, timeoutMs = 3500): Promise<MarketProbe<T>> {
@@ -509,11 +501,16 @@ function mapNotificationChannel(channel: {
   };
 }
 
-export async function ensureResearchAutomationSeed() {
+export async function ensureResearchAutomationSeed(scope: ResearchScope) {
+  assertResearchScope(scope);
+  const watchlistId = scopedResearchId(scope, DEFAULT_WATCHLIST_ID);
+  const channelId = scopedResearchId(scope, DEFAULT_CHANNEL_ID);
   const watchlist = await prisma.researchWatchlist.upsert({
-    where: { id: DEFAULT_WATCHLIST_ID },
+    where: { id: watchlistId },
     create: {
-      id: DEFAULT_WATCHLIST_ID,
+      id: watchlistId,
+      projectId: scope.projectId,
+      createdById: scope.actorUserId,
       name: 'QuantPilot 每日核心观察池',
       description: '围绕默认 A 股研究池和少量核心标的生成证据型日报。',
       universeId: DEFAULT_UNIVERSE_ID,
@@ -527,7 +524,7 @@ export async function ensureResearchAutomationSeed() {
         enabled: false,
       },
       reportTemplate: 'daily_brief',
-      notificationChannelIds: [DEFAULT_CHANNEL_ID],
+      notificationChannelIds: [channelId],
       metadata: {
         seeded: true,
         intent: 'research_automation_p0',
@@ -538,9 +535,11 @@ export async function ensureResearchAutomationSeed() {
   });
 
   const channel = await prisma.notificationChannel.upsert({
-    where: { id: DEFAULT_CHANNEL_ID },
+    where: { id: channelId },
     create: {
-      id: DEFAULT_CHANNEL_ID,
+      id: channelId,
+      projectId: scope.projectId,
+      createdById: scope.actorUserId,
       name: '企业微信投研日报 Dry-run',
       channelType: 'wxwork',
       status: 'configured',
@@ -556,37 +555,50 @@ export async function ensureResearchAutomationSeed() {
     update: {},
   });
 
+  assertSameResearchProject(scope, [watchlist, channel]);
   return { watchlist, channel };
 }
 
-async function findChannelsForWatchlist(watchlist: ResearchWatchlistSnapshot | null) {
-  const ids = watchlist?.notificationChannelIds ?? [DEFAULT_CHANNEL_ID];
+async function findChannelsForWatchlist(scope: ResearchScope, watchlist: ResearchWatchlistSnapshot | null) {
+  const ids = watchlist?.notificationChannelIds ?? [scopedResearchId(scope, DEFAULT_CHANNEL_ID)];
   const channels = await prisma.notificationChannel.findMany({
     where: {
-      id: { in: ids.length > 0 ? ids : [DEFAULT_CHANNEL_ID] },
+      projectId: scope.projectId,
+      id: { in: ids },
       status: { not: 'disabled' },
     },
   });
 
-  if (channels.length > 0) return channels;
-
-  const fallback = await prisma.notificationChannel.findUnique({ where: { id: DEFAULT_CHANNEL_ID } });
-  return fallback ? [fallback] : [];
+  if (channels.length !== new Set(ids).size) throw new Error('Notification channel missing, disabled or outside this project.');
+  return channels;
 }
 
 export async function createNotificationDeliveries(params: {
+  scope: ResearchScope;
   runId?: string | null;
   report: ResearchNotificationReportInput;
   channels: ResearchNotificationChannelInput[];
   dryRun: boolean;
   idempotencyKey?: string | null;
 }) {
+  assertResearchScope(params.scope);
+  // Re-read authoritative rows at the side-effect boundary, even for worker callers.
+  const [reportRecord, channelRecords, runRecord] = await Promise.all([
+    prisma.researchReport.findFirst({ where: { id: params.report.id, projectId: params.scope.projectId } }),
+    prisma.notificationChannel.findMany({ where: { id: { in: params.channels.map((channel) => channel.id) }, projectId: params.scope.projectId, status: { not: 'disabled' } } }),
+    params.runId ? prisma.researchReportRun.findFirst({ where: { id: params.runId, projectId: params.scope.projectId } }) : Promise.resolve(null),
+  ]);
+  if (!reportRecord || (params.runId && (!runRecord || reportRecord.runId !== params.runId)) || channelRecords.length !== new Set(params.channels.map((channel) => channel.id)).size) {
+    throw new Error('Research notification resources must belong to the same project.');
+  }
+  const authoritativeReport = mapNotificationReport(reportRecord);
   const deliveries: NotificationDelivery[] = [];
 
-  for (const channel of params.channels) {
+  for (const channelRecord of channelRecords) {
+    const channel = mapNotificationChannel(channelRecord);
     const deliveryIdempotencyKey = params.idempotencyKey
       ? `research-notification:${createHash('sha256')
-        .update(`${params.idempotencyKey}\0${params.report.id}\0${channel.id}`)
+        .update(`${params.scope.projectId}\0${params.idempotencyKey}\0${params.report.id}\0${channel.id}`)
         .digest('hex')}`
       : null;
     let reserved: NotificationDelivery;
@@ -596,13 +608,15 @@ export async function createNotificationDeliveries(params: {
       // not send a second notification.
       reserved = await prisma.notificationDelivery.create({
         data: {
+          projectId: params.scope.projectId,
+          createdById: params.scope.actorUserId,
           idempotencyKey: deliveryIdempotencyKey,
           runId: params.runId ?? null,
           reportId: params.report.id,
           channelId: channel.id,
           status: 'sending',
           channelType: channel.channelType,
-          title: params.report.title,
+          title: authoritativeReport.title,
           payload: inputJson({
             adapter: `${channel.channelType}-webhook`,
             mode: params.dryRun ? 'dry_run_reserved' : 'real_reserved',
@@ -624,7 +638,7 @@ export async function createNotificationDeliveries(params: {
         const existing = await prisma.notificationDelivery.findUnique({
           where: { idempotencyKey: deliveryIdempotencyKey },
         });
-        if (existing) {
+        if (existing && existing.projectId === params.scope.projectId) {
           deliveries.push(existing);
           continue;
         }
@@ -635,7 +649,7 @@ export async function createNotificationDeliveries(params: {
     try {
       const result = await deliverResearchReportNotification({
         channel,
-        report: params.report,
+        report: authoritativeReport,
         forceDryRun: params.dryRun,
       });
       deliveries.push(await prisma.notificationDelivery.update({
@@ -720,6 +734,7 @@ function buildReport(params: {
   universesProbe: MarketProbe;
   screenerProbe: MarketProbe;
   clickhouseProbe: MarketProbe;
+  researchTime: QuantResearchTime;
 }): ReportBuildResult {
   const evidence = [
     { ...params.universesProbe.evidence, source: '本地股票池' },
@@ -728,23 +743,22 @@ function buildReport(params: {
   ];
 
   const universes = extractUniverses(params.universesProbe.data);
-  const candidates = extractCandidates(params.screenerProbe.data);
-  const targetUniverse = universes.find((universe) => asString(universe.id) === params.watchlist.universeId) ?? universes[0] ?? {};
+  const candidates = extractCandidates(params.screenerProbe.data).filter((candidate) => candidateWithinWatchlist(candidate, { ...params.watchlist, endDate: params.researchTime.endDate }));
+  const targetUniverse = universes.find((universe) => asString(universe.id) === params.watchlist.universeId) ?? {};
   const analytics = asRecord(asRecord(params.screenerProbe.data).analytics);
-  const unavailableCount = evidence.filter((item) => statusPriority(item.status) <= 1).length;
-  const readyCount = asNumber(targetUniverse.ready_count) ?? 0;
-  const memberCount = asNumber(targetUniverse.member_count) ?? params.watchlist.symbols.length;
+  const screenerData = asRecord(params.screenerProbe.data);
+  const readyCount = asNumber(screenerData.safety_complete_symbols) ?? 0;
+  const memberCount = params.watchlist.symbols.length || (asNumber(screenerData.total_symbols) ?? 0);
   const coverageRatio = memberCount > 0 ? readyCount / memberCount : 0;
-  const candidateBoost = Math.min(12, candidates.length * 2);
-  const dataPenalty = unavailableCount * 8;
-  const coverageScore = Math.round(Math.min(18, coverageRatio * 18));
-  const score = Math.max(45, Math.min(90, 62 + coverageScore + candidateBoost - dataPenalty));
-  const riskLevel = deriveRiskLevel(score, unavailableCount);
-  const recommendation = deriveRecommendation(score, unavailableCount);
+  const assessment = assessResearch({ coverageRatio, sourceStatuses: evidence.slice(0, 2).map((item) => item.status), candidates });
+  const score = assessment.dataConfidence;
+  const riskLevel = assessment.investmentRisk;
+  const recommendation = assessment.recommendation;
 
   const topCandidates = candidates.slice(0, 5).map(candidateLabel);
   const evidenceLines = evidence.map((item) => `- ${item.source}: ${item.status}，${item.detail}`);
   const checklist = [
+    ...(params.watchlist.markets.includes('ETF') ? ['当前短线筛选接口仅支持 A 股股票；ETF 尚未纳入候选及风险评估。'] : []),
     candidates.length > 0 ? '核对前 3 个候选标的的最新 K 线、成交额和涨跌停状态。' : '先检查筛选条件和本地行情覆盖，确认为何没有候选标的。',
     coverageRatio >= 0.8 ? '股票池覆盖率可用于日报观察，继续保留补数监控。' : '优先补齐股票池日线覆盖，避免日报结论偏样本。',
     analytics.engine === 'clickhouse' ? 'ClickHouse 已参与筛选，可继续扩展横截面因子。' : '当前未确认 ClickHouse 命中，批量筛选仍需关注性能。',
@@ -753,8 +767,8 @@ function buildReport(params: {
 
   const title = `${reportDateValue()} ${params.watchlist.name} 投研日报`;
   const summary = candidates.length > 0
-    ? `本次生成 ${candidates.length} 个候选标的，综合评分 ${score}，建议：${recommendation}。`
-    : `本次未生成候选标的，综合评分 ${score}，重点处理数据覆盖和筛选证据。`;
+    ? `本次生成 ${candidates.length} 个候选标的，数据可信度 ${score}，建议：${recommendation}。`
+    : `本次未生成候选标的，数据可信度 ${score}，重点处理数据覆盖和筛选证据。`;
 
   const contentMarkdown = [
     `# ${title}`,
@@ -762,8 +776,8 @@ function buildReport(params: {
     `## 核心结论`,
     summary,
     '',
-    `## 综合评分`,
-    `- 评分：${score}/100`,
+    `## 数据可信度`,
+    `- 数据可信度：${score}/100`,
     `- 风险等级：${riskLevelLabel(riskLevel)}`,
     `- 建议：${recommendation}`,
     '',
@@ -791,13 +805,18 @@ function buildReport(params: {
     contentMarkdown,
     evidence,
     structured: {
-      version: 1,
+      version: 2,
+      assessment,
+      researchTime: params.researchTime,
       watchlistId: params.watchlist.id,
       coverage: {
         universeId: params.watchlist.universeId,
         readyCount,
         memberCount,
         coverageRatio: Number(coverageRatio.toFixed(4)),
+        universeReadyCount: asNumber(targetUniverse.ready_count) ?? 0,
+        universeMemberCount: asNumber(targetUniverse.member_count) ?? 0,
+        basis: 'watchlist_screener_safety_fields',
       },
       candidates: candidates.slice(0, 10).map((candidate) => ({
         symbol: asString(candidate.symbol),
@@ -820,18 +839,19 @@ function buildReport(params: {
   };
 }
 
-export async function getResearchAutomationDashboard(): Promise<ResearchAutomationDashboard> {
-  await ensureResearchAutomationSeed();
+export async function getResearchAutomationDashboard(scope: ResearchScope): Promise<ResearchAutomationDashboard> {
+  await ensureResearchAutomationSeed(scope);
+  const where = { projectId: scope.projectId };
 
   const [watchlistCount, reportCount, channelCount, watchlists, reports, runs, channels, deliveries] = await Promise.all([
-    prisma.researchWatchlist.count(),
-    prisma.researchReport.count(),
-    prisma.notificationChannel.count({ where: { status: { not: 'disabled' } } }),
-    prisma.researchWatchlist.findMany({ orderBy: { updatedAt: 'desc' }, take: 20 }),
-    prisma.researchReport.findMany({ orderBy: { createdAt: 'desc' }, take: 20 }),
-    prisma.researchReportRun.findMany({ orderBy: { startedAt: 'desc' }, take: 20 }),
-    prisma.notificationChannel.findMany({ orderBy: { updatedAt: 'desc' }, take: 10 }),
-    prisma.notificationDelivery.findMany({ orderBy: { createdAt: 'desc' }, take: 20 }),
+    prisma.researchWatchlist.count({ where }),
+    prisma.researchReport.count({ where }),
+    prisma.notificationChannel.count({ where: { ...where, status: { not: 'disabled' } } }),
+    prisma.researchWatchlist.findMany({ where, orderBy: { updatedAt: 'desc' }, take: 20 }),
+    prisma.researchReport.findMany({ where, orderBy: { createdAt: 'desc' }, take: 20 }),
+    prisma.researchReportRun.findMany({ where, orderBy: { startedAt: 'desc' }, take: 20 }),
+    prisma.notificationChannel.findMany({ where, orderBy: { updatedAt: 'desc' }, take: 10 }),
+    prisma.notificationDelivery.findMany({ where, orderBy: { createdAt: 'desc' }, take: 20 }),
   ]);
 
   const latestReports = reports.map(mapReport);
@@ -839,6 +859,7 @@ export async function getResearchAutomationDashboard(): Promise<ResearchAutomati
   const latestEvidence = latestReports[0]?.evidence ?? [];
 
   return {
+    projectId: scope.projectId,
     generatedAt: nowIso(),
     summary: {
       watchlists: watchlistCount,
@@ -856,13 +877,15 @@ export async function getResearchAutomationDashboard(): Promise<ResearchAutomati
 }
 
 export async function runDailyResearchReport(
+  scope: ResearchScope,
   options: RunDailyResearchReportOptions = {}
 ): Promise<ResearchAutomationDashboard> {
-  await ensureResearchAutomationSeed();
+  await ensureResearchAutomationSeed(scope);
 
   const watchlistRecord = await prisma.researchWatchlist.findFirst({
     where: {
-      id: options.watchlistId ?? DEFAULT_WATCHLIST_ID,
+      projectId: scope.projectId,
+      id: options.watchlistId ?? scopedResearchId(scope, DEFAULT_WATCHLIST_ID),
       status: { not: 'disabled' },
     },
   });
@@ -872,32 +895,42 @@ export async function runDailyResearchReport(
   }
 
   const watchlist = mapWatchlist(watchlistRecord);
+  watchlist.symbols.forEach(canonicalResearchSymbol);
   const startedAt = new Date();
+  const researchTime = resolveResearchTime({ unit: 'date_range', endDate: new Date(startedAt.getTime() + 8 * 3600000).toISOString().slice(0, 10), asOf: startedAt.toISOString() }, startedAt)!;
   const run = await prisma.researchReportRun.create({
     data: {
+      projectId: scope.projectId,
+      createdById: scope.actorUserId,
       watchlistId: watchlist.id,
       status: 'running',
       runType: options.runType ?? (options.dryRun === false ? 'manual' : 'dry_run'),
       startedAt,
       providerMode: 'local',
-      metadata: {
+      metadata: inputJson({
         dryRun: options.dryRun ?? true,
         marketApiBaseUrl: MARKET_API_BASE_URL,
-      },
+        researchTime,
+      }),
     },
   });
 
   try {
     const universeId = watchlist.universeId ?? DEFAULT_UNIVERSE_ID;
+    const query = new URLSearchParams({ universe_id: universeId, limit: '8', trade_date: researchTime.endDate });
+    watchlist.symbols.forEach((symbol) => query.append('symbols', symbol));
+    watchlist.markets.forEach((market) => query.append('markets', market));
     const [universesProbe, screenerProbe, clickhouseProbe] = await Promise.all([
       fetchMarketProbe(`/api/v1/research/universes/summary`, '本地股票池'),
-      fetchMarketProbe(`/api/v1/research/screeners/a-share/short-term-candidates?universe_id=${encodeURIComponent(universeId)}&limit=8`, '短线候选筛选', 5000),
+      fetchMarketProbe(`/api/v1/research/screeners/a-share/short-term-candidates?${query}`, '短线候选筛选', 5000),
       fetchMarketProbe(`/api/v1/analytics/clickhouse/health`, 'ClickHouse 分析层'),
     ]);
 
-    const builtReport = buildReport({ watchlist, universesProbe, screenerProbe, clickhouseProbe });
+    const builtReport = buildReport({ watchlist, universesProbe, screenerProbe, clickhouseProbe, researchTime });
     const report = await prisma.researchReport.create({
       data: {
+        projectId: scope.projectId,
+        createdById: scope.actorUserId,
         runId: run.id,
         watchlistId: watchlist.id,
         title: builtReport.title,
@@ -918,8 +951,9 @@ export async function runDailyResearchReport(
       },
     });
 
-    const deliveryChannels = await findChannelsForWatchlist(watchlist);
+    const deliveryChannels = await findChannelsForWatchlist(scope, watchlist);
     const deliveries = await createNotificationDeliveries({
+      scope,
       runId: run.id,
       report: mapNotificationReport(report),
       channels: deliveryChannels.map(mapNotificationChannel),
@@ -959,27 +993,29 @@ export async function runDailyResearchReport(
     throw error;
   }
 
-  return getResearchAutomationDashboard();
+  return getResearchAutomationDashboard(scope);
 }
 
 export async function sendResearchReport(
+  scope: ResearchScope,
   options: SendResearchReportOptions = {}
 ): Promise<ResearchAutomationDashboard> {
-  await ensureResearchAutomationSeed();
+  await ensureResearchAutomationSeed(scope);
 
   const report = options.reportId
-    ? await prisma.researchReport.findUnique({ where: { id: options.reportId } })
-    : await prisma.researchReport.findFirst({ orderBy: { createdAt: 'desc' } });
+    ? await prisma.researchReport.findFirst({ where: { id: options.reportId, projectId: scope.projectId } })
+    : await prisma.researchReport.findFirst({ where: { projectId: scope.projectId }, orderBy: { createdAt: 'desc' } });
 
   if (!report) {
     throw new Error(options.reportId ? `Research report not found: ${options.reportId}` : 'No research report available to send');
   }
 
   const watchlistRecord = report.watchlistId
-    ? await prisma.researchWatchlist.findUnique({ where: { id: report.watchlistId } })
+    ? await prisma.researchWatchlist.findFirst({ where: { id: report.watchlistId, projectId: scope.projectId } })
     : null;
   const watchlist = watchlistRecord ? mapWatchlist(watchlistRecord) : null;
-  const deliveryChannels = await findChannelsForWatchlist(watchlist);
+  if (report.watchlistId && !watchlistRecord) throw new Error('Research report watchlist is unavailable in this project.');
+  const deliveryChannels = await findChannelsForWatchlist(scope, watchlist);
 
   if (deliveryChannels.length === 0) {
     throw new Error('No notification channel available');
@@ -988,7 +1024,7 @@ export async function sendResearchReport(
   const dryRun = options.dryRun ?? false;
   const idempotencyKey = options.idempotencyKey?.trim();
   const reservationKey = !dryRun && idempotencyKey
-    ? `research-delivery-idempotency:${createHash('sha256').update(idempotencyKey).digest('hex')}`
+    ? `research-delivery-idempotency:${createHash('sha256').update(`${scope.projectId}:${idempotencyKey}`).digest('hex')}`
     : null;
   if (!dryRun && !reservationKey) {
     throw new Error('Real research report delivery requires an idempotency key');
@@ -1016,7 +1052,7 @@ export async function sendResearchReport(
         if (asString(value.status) !== 'failed') {
           // completed means a known success; reserved means the outcome may be
           // uncertain after a crash. Both are at-most-once and must not resend.
-          return getResearchAutomationDashboard();
+          return getResearchAutomationDashboard(scope);
         }
         await prisma.platformSetting.update({
           where: { key: reservationKey },
@@ -1037,6 +1073,7 @@ export async function sendResearchReport(
 
   try {
     const deliveries = await createNotificationDeliveries({
+      scope,
       runId: null,
       report: mapNotificationReport(report),
       channels: deliveryChannels.map(mapNotificationChannel),
@@ -1073,5 +1110,5 @@ export async function sendResearchReport(
     throw error;
   }
 
-  return getResearchAutomationDashboard();
+  return getResearchAutomationDashboard(scope);
 }

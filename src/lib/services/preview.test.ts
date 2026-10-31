@@ -22,6 +22,7 @@ const fsMocks = vi.hoisted(() => ({
   readFile: vi.fn(),
   readdir: vi.fn(),
   readlink: vi.fn(),
+  realpath: vi.fn(),
   rename: vi.fn(),
   rm: vi.fn(),
   stat: vi.fn(),
@@ -163,6 +164,7 @@ describe('PreviewManager start concurrency', () => {
       throw missingFile();
     });
     fsMocks.readlink.mockRejectedValue(missingFile());
+    fsMocks.realpath.mockImplementation(async (value: string) => value);
     fsMocks.rename.mockResolvedValue(undefined);
     fsMocks.rm.mockImplementation(async (targetPath: unknown, options?: unknown) => {
       if (String(targetPath).startsWith('/tmp/qp-preview/')) {
@@ -212,12 +214,17 @@ describe('PreviewManager start concurrency', () => {
       url: `http://localhost:${previewTestPort}`,
     });
     const previewEnv = mocks.spawn.mock.calls[0]?.[2]?.env as NodeJS.ProcessEnv;
-    expect(previewEnv.QUANTPILOT_SANDBOX_PREVIEW_SOCKET).toMatch(
-      /^\/tmp\/qp-preview\/[a-f0-9]{20}\/p\.sock$/,
-    );
-    expect(previewEnv.QUANTPILOT_SANDBOX_MARKET_SOCKET).toMatch(
-      /^\/tmp\/qp-preview\/[a-f0-9]{20}\/m\.sock$/,
-    );
+    if (process.platform === 'linux' && process.env.QUANTPILOT_GENERATED_SANDBOX !== '0') {
+      expect(previewEnv.QUANTPILOT_SANDBOX_PREVIEW_SOCKET).toMatch(
+        /^\/tmp\/qp-preview\/[a-f0-9]{20}\/p\.sock$/,
+      );
+      expect(previewEnv.QUANTPILOT_SANDBOX_MARKET_SOCKET).toMatch(
+        /^\/tmp\/qp-preview\/[a-f0-9]{20}\/m\.sock$/,
+      );
+    } else {
+      expect(previewEnv.QUANTPILOT_SANDBOX_PREVIEW_SOCKET).toBeUndefined();
+      expect(previewEnv.QUANTPILOT_SANDBOX_MARKET_SOCKET).toBeUndefined();
+    }
     expect(mocks.getProjectById).toHaveBeenCalledTimes(1);
     expect(mocks.spawn).toHaveBeenCalledTimes(1);
     expect(mocks.spawn).toHaveBeenCalledWith(
@@ -486,7 +493,7 @@ describe('PreviewManager start concurrency', () => {
       ) => void;
       callback(null, {
         stderr: '',
-        stdout: [
+        stdout: process.platform === 'darwin' ? 'p7108\nn127.0.0.1:4108\np7173\nn[::]:4173\np7300\nn*:4300\n' : [
           'LISTEN 0 511 127.0.0.1:4108 0.0.0.0:* users:(("next-server",pid=7108,fd=20))',
           'LISTEN 0 511 [::]:4173 [::]:* users:(("next-server",pid=7173,fd=21))',
           'LISTEN 0 511 0.0.0.0:4300 0.0.0.0:* users:(("next-server",pid=7300,fd=22))',
@@ -499,6 +506,13 @@ describe('PreviewManager start concurrency', () => {
       }
       return '/tmp/a-different-project';
     });
+    if (process.platform === 'darwin') {
+      mocks.execFile.mockImplementation((...args: unknown[]) => {
+        const params = args[1] as string[];
+        const callback = args.at(-1) as (error: Error | null, result: { stdout: string; stderr: string }) => void;
+        callback(null, { stdout: params.includes('7173') ? 'p7173\nn/tmp/quantpilot-preview-test\n' : 'p7108\nn/tmp/a-different-project\n', stderr: '' });
+      });
+    }
 
     const manager = new PreviewManager();
     await expect(manager.start('project-preview')).resolves.toMatchObject({
@@ -507,17 +521,39 @@ describe('PreviewManager start concurrency', () => {
       url: 'http://localhost:4173',
     });
 
-    expect(mocks.execFile).toHaveBeenCalledTimes(1);
+    expect(mocks.execFile).toHaveBeenCalledTimes(process.platform === 'darwin' ? 3 : 1);
     expect(mocks.execFile).toHaveBeenCalledWith(
-      'ss',
-      ['-ltnpH'],
+      process.platform === 'darwin' ? 'lsof' : 'ss',
+      process.platform === 'darwin' ? ['-nP', '-iTCP', '-sTCP:LISTEN', '-Fpn'] : ['-ltnpH'],
       expect.any(Function)
     );
     expect(mocks.findAvailablePort).not.toHaveBeenCalled();
     expect(mocks.spawn).not.toHaveBeenCalled();
   });
 
-  it('adopts a project listener whose cwd is inside the generated chroot', async () => {
+  it.skipIf(process.platform !== 'darwin')('stops only project-owned listeners from another process on macOS', async () => {
+    mocks.getProjectById.mockResolvedValue({
+      id: 'project-preview', previewPort: 4173, repoPath: '/tmp/quantpilot-preview-test',
+    });
+    let listening = true;
+    const kill = vi.spyOn(process, 'kill').mockImplementation((pid) => {
+      if (pid === 7173) listening = false;
+      return true;
+    });
+    mocks.execFile.mockImplementation((...args: unknown[]) => {
+      const params = args[1] as string[];
+      const callback = args.at(-1) as (error: Error | null, result: { stdout: string; stderr: string }) => void;
+      const stdout = params.includes('-d')
+        ? `p${params[2]}\nn${params.includes('7173') ? '/tmp/quantpilot-preview-test' : '/tmp/unrelated-project'}\n`
+        : `${listening ? 'p7173\nn*:4173\n' : ''}p7108\nn*:4173\n`;
+      callback(null, { stdout, stderr: '' });
+    });
+    await new PreviewManager().stop('project-preview');
+    expect(kill).toHaveBeenCalledWith(7173, 'SIGTERM');
+    expect(kill).not.toHaveBeenCalledWith(7108, expect.anything());
+  });
+
+  it.skipIf(process.platform !== 'linux')('adopts a project listener whose cwd is inside the generated chroot', async () => {
     process.env.PREVIEW_PORT_START = '4100';
     process.env.PREVIEW_PORT_END = '4199';
     vi.stubGlobal(

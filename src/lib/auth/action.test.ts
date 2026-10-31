@@ -183,9 +183,11 @@ describe('requireAction', () => {
     await expect(requireAction({
       headers,
       action: 'research.report.send',
+      projectId: 'project-1',
     }, {
       authEnabled: true,
       getSession: vi.fn().mockResolvedValue(session()),
+      getProjectRole: vi.fn().mockResolvedValue('owner'),
       repository: repository({
         profile: { key: 'member-default', grants: [grant('research.report.read')] },
       }),

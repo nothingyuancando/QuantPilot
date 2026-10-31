@@ -162,7 +162,7 @@ function contractExample(role: PiAgentSpecialistRole): Record<string, unknown> {
       findings: [{
         category: 'data_gap',
         severity: 'warning',
-        targetClaimId: 'claim-1',
+        ...(role === 'risk_crosscheck' ? { targetClaimId: 'copy-an-exact-referenceCatalog-claimId-or-omit-this-key' } : {}),
         explanation: 'Describe the concrete risk or gap.',
         evidenceIds: ['evidence:copy-an-exact-supplied-id'],
       }],
@@ -180,8 +180,8 @@ function contractExample(role: PiAgentSpecialistRole): Record<string, unknown> {
         sha256: 'copy-the-matching-sha256:hash',
       }],
       consensusClaims: [{
-        id: 'claim-1',
-        statement: 'A supported consensus statement.',
+        id: 'copy-an-exact-upstream-claim-id',
+        statement: 'Copy the exact upstream statement without paraphrasing.',
         evidenceIds: ['evidence:copy-an-upstream-id'],
         confidence: 0.8,
       }],
@@ -201,7 +201,7 @@ function contractExample(role: PiAgentSpecialistRole): Record<string, unknown> {
     asOf,
     summary: 'Evidence-bound specialist summary.',
     claims: [{
-      id: 'claim-1',
+      id: `${role}-claim-1`,
       statement: 'A supported point-in-time statement.',
       evidenceIds: ['evidence:copy-an-exact-supplied-id'],
       confidence: 0.8,

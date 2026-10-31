@@ -39,13 +39,13 @@ import { ApiIdempotencyConflictError } from '@/lib/server/api-idempotency';
 import { GET, POST } from './route';
 
 function request(body?: unknown): NextRequest {
-  return new NextRequest('http://localhost/api/research/reports', {
+  return new NextRequest('http://localhost/api/research/reports?projectId=project-1', {
     method: body === undefined ? 'GET' : 'POST',
     ...(body === undefined
       ? {}
       : {
           headers: { 'content-type': 'application/json', host: 'localhost' },
-          body: JSON.stringify(body),
+          body: JSON.stringify({ projectId: 'project-1', ...body as object }),
         }),
   });
 }
@@ -53,7 +53,7 @@ function request(body?: unknown): NextRequest {
 describe('/api/research/reports authorization', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.requireAction.mockResolvedValue({});
+    mocks.requireAction.mockResolvedValue({ actorUserId: 'member-1' });
     mocks.getDashboard.mockResolvedValue({ reports: [] });
     mocks.runReport.mockResolvedValue({ reports: [] });
     mocks.sendReport.mockResolvedValue({ reports: [] });
@@ -75,7 +75,19 @@ describe('/api/research/reports authorization', () => {
     expect(mocks.requireAction).toHaveBeenCalledWith({
       headers: expect.any(Headers),
       action: 'research.report.read',
+      projectId: 'project-1',
     });
+    expect(mocks.getDashboard).toHaveBeenCalledWith({ projectId: 'project-1', actorUserId: 'member-1' });
+  });
+
+  it('requires an explicit project before reading or running reports', async () => {
+    const read = await GET(new NextRequest('http://localhost/api/research/reports'));
+    const run = await POST(request({ action: 'run-daily-report', projectId: '' }));
+    expect(read.status).toBe(400);
+    expect(run.status).toBe(400);
+    expect(mocks.getDashboard).not.toHaveBeenCalled();
+    expect(mocks.runReport).not.toHaveBeenCalled();
+    expect(mocks.claimApiOperation).not.toHaveBeenCalled();
   });
 
   it('requires report run for daily report generation', async () => {
@@ -84,6 +96,7 @@ describe('/api/research/reports authorization', () => {
     expect(mocks.requireAction).toHaveBeenCalledWith({
       headers: expect.any(Headers),
       action: 'research.report.run',
+      projectId: 'project-1',
     });
   });
 
@@ -93,6 +106,7 @@ describe('/api/research/reports authorization', () => {
     expect(mocks.requireAction).toHaveBeenCalledWith({
       headers: expect.any(Headers),
       action: 'research.report.send',
+      projectId: 'project-1',
     });
   });
 
@@ -181,7 +195,7 @@ describe('/api/research/reports authorization', () => {
     }));
 
     expect(response.status).toBe(201);
-    expect(mocks.sendReport).toHaveBeenCalledWith({
+    expect(mocks.sendReport).toHaveBeenCalledWith({ projectId: 'project-1', actorUserId: undefined }, {
       reportId: 'report-1',
       dryRun: false,
       idempotencyKey: 'member-1:raw:send-1',

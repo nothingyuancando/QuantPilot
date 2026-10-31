@@ -880,7 +880,7 @@ export async function compilePiAgentSkills(
   options: CompilePiAgentSkillsOptions = {},
 ): Promise<CompilePiAgentSkillsResult> {
   const catalog = await resolveRuntimeSkillCatalog(path.resolve(options.repositoryRoot ?? process.cwd()), options.runtimeWorkspace);
-  const root = catalog.root;
+  const root = await fs.realpath(catalog.root);
   const registryPath = resolveFromRoot(
     root,
     options.registryPath ?? path.join(PI_AGENT_DIRECTORY, 'skills.registry.json'),

@@ -80,7 +80,9 @@ flowchart LR
 QUANTPILOT_MULTI_AGENT_ENABLED=1
 ```
 
-生成页会展示 DAG 波次、节点状态、模型、耗时、Token、产物和错误。Eval Platform 支持使用相同 case、模型与 evaluator 对照运行单 Agent 和多 Agent，比较通过率、评分、耗时与 Token。完整拓扑、证据约束、安全边界和灰度步骤见 [Multi-Agent Mission DAG](docs/multi-agent-orchestration.md)。
+生成页会展示 DAG 波次、节点状态、模型、耗时、Token、产物和错误。单/多 Agent 效果比较要求实验、问题、输入、工具配置、模型、评审版本和构建等信息一致；缺少可验证的配对信息时不展示效果差值。完整拓扑、证据约束、安全边界和灰度步骤见 [Multi-Agent Mission DAG](docs/multi-agent-orchestration.md)。
+
+研究报告、关注列表、运行和推送记录按项目隔离，API 要求 `projectId` 并检查项目成员权限。数据可信度、候选信号和投资风险分别表达；缺少风险证据时显示“未评估”。研究时点在预取阶段固定，汇总必须保留上游风险、争议与证据血缘。升级前需应用新增的项目归属迁移；历史无归属数据保持隔离，归属须另行核实。实现与迁移说明见 [研究业务隔离与验证](docs/research-business-hardening.md)。
 
 ## 快速启动
 
@@ -302,6 +304,8 @@ scripts/ + deploy/      开发、检查、构建与部署配置
 | 单独启动 Web / 数据服务 | `npm run dev:web` / `npm run dev:market` |
 | 前端与后端测试 | `npm test` |
 | 前端覆盖率检查 | `npm run test:coverage` |
+| 研究业务规则 benchmark（50 例，无模型调用） | `npm run benchmark:research:business` |
+| 交付合同 / 真实模型 benchmark | `npm run benchmark:quant:contract` / `npm run benchmark:quant:e2e` |
 | Skills 完整性与行为检查 | `npm run check:skills` |
 | 桌面与移动端浏览器测试 | 先运行 `npx playwright install chromium`、`npm run build`，再运行 `npm run test:e2e` |
 | 确定性发布质量检查 | `npm run release:check` |
@@ -311,6 +315,8 @@ scripts/ + deploy/      开发、检查、构建与部署配置
 `release:check` 覆盖静态检查、Skills、评测合同、单元测试、覆盖率、类型检查和构建。真实模型评测需要相应模型凭据与运行环境，不能由确定性检查替代；运行方式见 [评测指南](docs/evals-guide.md)。维护命令见 [运行手册](docs/operations-runbook.md)，发布与回滚见 [生产发布手册](docs/release-runbook.md)。
 
 源码与业务数据分开管理：`data/projects/` 保存研究工作空间，`data/skill-catalog/` 保存 Skills 维护状态；数据库保存索引、状态与业务记录。凭据、工作空间、上传文件、构建产物和运行日志默认不提交 Git。清理或恢复前先查 [数据生命周期](docs/data-lifecycle.md)。
+
+2026-10-31 验证：前端单测 1707 通过、39 跳过，后端 206 通过、4 跳过，类型检查通过，研究业务 benchmark 50/50、交付合同 16/16。真实 DeepSeek 单 Agent 和多 Agent 各完成四个定制研究案例，标准渲染另作产品对照。最新多 Agent 完整复跑业务 4/4、产品对照 1/1，工具失败为 0；组合风险仍超过每例 12 轮和 84,000 非缓存输入 Token 门槛，自定义诊股也超 Token 门槛，因此整体成本评测未通过。行情为合成 fixture，模型为真实 API；本次未证明多 Agent 投资分析优于单 Agent。详细口径与剩余问题见 [验证记录](docs/research-business-hardening.md)。原始临时报告和截图不随源码提交，可用上述命令重新生成。
 
 ## 当前边界与下一步
 

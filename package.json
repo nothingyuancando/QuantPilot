@@ -112,6 +112,7 @@
     "release:check:production": "node scripts/checks/release-check.js --security --production",
     "release:check:evidence": "node scripts/checks/release-check.js --security --runtime --eval-contract --e2e-evidence",
     "benchmark:quant:contract": "node scripts/evals/run-quant-benchmarks.js --mode contract",
+    "benchmark:research:business": "node --import tsx scripts/evals/run-research-business-benchmark.ts",
     "benchmark:quant:e2e": "node scripts/evals/run-quant-benchmarks.js --mode e2e",
     "benchmark:quant:hidden": "node scripts/evals/run-quant-benchmarks.js --mode e2e --dataset-visibility hidden",
     "benchmark:quant:shadow": "node scripts/evals/run-quant-benchmarks.js --mode e2e --dataset-visibility production_replay",

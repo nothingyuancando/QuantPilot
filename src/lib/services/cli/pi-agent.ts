@@ -149,7 +149,9 @@ const PREPARED_CUSTOMIZATION_SIGNAL = new RegExp(
  * ordinary generation requests receive the trusted template compiler.
  */
 export function classifyPiAgentPreparedIntent(instruction: string): PiAgentPreparedIntent {
-  return PREPARED_CUSTOMIZATION_SIGNAL.test(instruction.normalize('NFKC'))
+  const normalized = instruction.normalize('NFKC');
+  return (PREPARED_CUSTOMIZATION_SIGNAL.test(normalized)
+    || /(?:不要|不用|不使用|禁止).{0,6}(?:卡片|圆角|网格)/u.test(normalized))
     ? 'custom'
     : 'standard';
 }

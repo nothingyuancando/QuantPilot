@@ -13,7 +13,7 @@ afterEach(async () => {
 
 it('shares evaluation paths with standalone and pins the release behind current', async () => {
   fixture = await fs.mkdtemp(path.join(os.tmpdir(), 'eval-root-'));
-  const release = path.join(fixture, 'release-a');
+  const release = path.join(await fs.realpath(fixture), 'release-a');
   const nextRelease = path.join(fixture, 'release-b');
   const current = path.join(fixture, 'current');
   const standalone = path.join(release, '.next', 'standalone');

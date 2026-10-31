@@ -294,9 +294,11 @@ export function createFinanceMultiAgentMissionDefinition(input: {
 
   const specialistBudget = budget({
     maxAttempts: 2,
-    maxToolCalls: 8,
+    maxToolCalls: 3,
     maxInputTokens: 48_000,
-    maxOutputTokens: 8_000,
+    // Initial extraction and a complete corrective JSON response share this
+    // budget. Real portfolio runs exhausted 8k during the correction.
+    maxOutputTokens: 16_000,
     timeoutMs: 300_000,
   });
   const specialist = (
@@ -315,9 +317,9 @@ export function createFinanceMultiAgentMissionDefinition(input: {
     joinPolicy: { type: 'all', allowDegradedInputs: false },
     failurePolicy: { mode: 'retry', maxAttempts: 2, retryBackoffMs: 1_000 },
     concurrency: { group: 'finance-research', maxParallel: 3, priority: 50 },
-    allowedTools: ['query_json', 'query_text_file'],
+    allowedTools: ['retrieve_finance_evidence'],
     requiredSkillSections: ['quant-market-data', 'data-quality'],
-    inputArtifacts: [...dataPrefetch.outputArtifacts],
+    inputArtifacts: [...dataPrefetch.outputArtifacts, '.data-agent/finance-run-plan.json'],
     outputArtifacts: [output],
     budget: specialistBudget,
     acceptancePredicates: ['derived_evidence_present'],
@@ -346,6 +348,7 @@ export function createFinanceMultiAgentMissionDefinition(input: {
     ),
     dependencies: ['fundamental_research', 'technical_analysis', 'risk_precheck'],
     inputArtifacts: [
+      '.data-agent/finance-run-plan.json',
       FINANCE_MULTI_AGENT_ARTIFACTS.fundamental,
       FINANCE_MULTI_AGENT_ARTIFACTS.technical,
       FINANCE_MULTI_AGENT_ARTIFACTS.riskPrecheck,
@@ -360,23 +363,27 @@ export function createFinanceMultiAgentMissionDefinition(input: {
     agentProfileVersion: '1.0.0',
     effect: 'artifact_write',
     workspacePolicy: 'artifact_only',
-    dependencies: ['fundamental_research', 'technical_analysis', 'risk_crosscheck'],
+    dependencies: ['fundamental_research', 'technical_analysis', 'risk_precheck', 'risk_crosscheck'],
     joinPolicy: { type: 'all', allowDegradedInputs: false },
     failurePolicy: { mode: 'retry', maxAttempts: 2, retryBackoffMs: 1_000 },
     concurrency: { group: 'finance-synthesis', maxParallel: 1, priority: 80 },
-    allowedTools: ['query_json'],
+    allowedTools: ['retrieve_finance_evidence'],
     requiredSkillSections: ['dashboard-visualization'],
     inputArtifacts: [
+      '.data-agent/finance-run-plan.json',
       FINANCE_MULTI_AGENT_ARTIFACTS.fundamental,
       FINANCE_MULTI_AGENT_ARTIFACTS.technical,
       FINANCE_MULTI_AGENT_ARTIFACTS.riskCrosscheck,
+      FINANCE_MULTI_AGENT_ARTIFACTS.riskPrecheck,
     ],
     outputArtifacts: [FINANCE_MULTI_AGENT_ARTIFACTS.synthesis],
     budget: budget({
       maxAttempts: 2,
-      maxToolCalls: 6,
+      maxToolCalls: 3,
       maxInputTokens: 48_000,
-      maxOutputTokens: 10_000,
+      // A complete synthesis and one schema/lineage correction share this
+      // budget; both must retain every unresolved upstream risk.
+      maxOutputTokens: 16_000,
       timeoutMs: 300_000,
     }),
     acceptancePredicates: ['derived_evidence_present'],

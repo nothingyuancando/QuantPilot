@@ -186,8 +186,10 @@ async function executeResearchOperation(params: {
 
 export async function GET(request: NextRequest) {
   try {
-    await requireAction({ headers: request.headers, action: 'research.report.read' });
-    const dashboard = await getResearchAutomationDashboard();
+    const projectId = request.nextUrl.searchParams.get('projectId')?.trim();
+    if (!projectId) return createErrorResponse('PROJECT_REQUIRED', '请选择项目。', 400);
+    const context = await requireAction({ headers: request.headers, action: 'research.report.read', projectId });
+    const dashboard = await getResearchAutomationDashboard({ projectId, actorUserId: context.actorUserId });
     return createSuccessResponse(dashboard);
   } catch (error) {
     if (error instanceof AuthorizationError) return authErrorResponse(error);
@@ -203,6 +205,7 @@ export async function POST(request: NextRequest) {
     if (!getProjectAuthConfig().enabled) assertPrivilegedMutation(request);
     const body = await request.json().catch(() => ({})) as {
       action?: string;
+      projectId?: string;
       watchlistId?: string;
       reportId?: string;
       dryRun?: boolean;
@@ -210,8 +213,11 @@ export async function POST(request: NextRequest) {
       idempotencyKey?: string;
     };
 
+    const projectId = typeof body.projectId === 'string' ? body.projectId.trim() : '';
+    if (!projectId) return createErrorResponse('PROJECT_REQUIRED', '请选择项目。', 400);
+    body.projectId = projectId;
     if (!body.action || body.action === 'run-daily-report') {
-      const context = await requireAction({ headers: request.headers, action: 'research.report.run' });
+      const context = await requireAction({ headers: request.headers, action: 'research.report.run', projectId });
       const options: RunDailyResearchReportOptions = {
         watchlistId: body.watchlistId,
         dryRun: body.dryRun ?? true,
@@ -223,12 +229,12 @@ export async function POST(request: NextRequest) {
         body,
         metric: 'research.report_runs.daily',
         units: 1,
-        execute: async () => createSuccessResponse(await runDailyResearchReport(options), 201),
+        execute: async () => createSuccessResponse(await runDailyResearchReport({ projectId, actorUserId: context.actorUserId }, options), 201),
       });
     }
 
     if (body.action === 'send-latest-report') {
-      const context = await requireAction({ headers: request.headers, action: 'research.report.send' });
+      const context = await requireAction({ headers: request.headers, action: 'research.report.send', projectId });
       if (body.dryRun !== true && body.confirmed !== true) {
         throw new Error('真实推送必须显式确认。');
       }
@@ -242,7 +248,7 @@ export async function POST(request: NextRequest) {
         body,
         metric: body.dryRun === true ? undefined : 'research.report_sends.daily',
         units: body.dryRun === true ? 0 : 1,
-        execute: async (operationKey) => createSuccessResponse(await sendResearchReport({
+        execute: async (operationKey) => createSuccessResponse(await sendResearchReport({ projectId, actorUserId: context.actorUserId }, {
           reportId: body.reportId,
           dryRun: body.dryRun ?? false,
           // Scope the lower-level delivery fence by actor so two users may use

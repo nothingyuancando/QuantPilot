@@ -142,6 +142,9 @@ export function normalizeMetadata(report: JsonRecord, results: QuantEvalResult[]
       workspaceRetained: booleanValue(retention.workspaceRetained),
     },
     provenance: {
+      experimentId: stringValue(provenance.experimentId) || null,
+      toolConfigSha256: stringValue(provenance.toolConfigSha256) || null,
+      frozenInputsSha256: stringValue(provenance.frozenInputsSha256) || null,
       gitCommit: stringValue(provenance.gitCommit) || null,
       gitRevision: stringValue(provenance.gitRevision) || null,
       buildRevision: stringValue(provenance.buildRevision) || null,

@@ -1,5 +1,5 @@
 import path from 'path';
-import { researchTimeForPlan } from '@/lib/domains/finance/research-time';
+import { researchTimeForPlan, resolveResearchTime } from '@/lib/domains/finance/research-time';
 import { ensureBaselineEvidenceFiles } from '@/lib/quant/evidence';
 import { appendQuantWorkspaceEvent, ensureQuantWorkspace, QuantRunPlan } from '@/lib/domains/finance/workspace';
 import { type JsonRecord, type PrefetchResult, asRecord, extractBarsFromAsset } from './data-prefetch/values';
@@ -57,8 +57,13 @@ export async function prefetchQuantDataForRunPlan(params: {
     return { skipped: true, summary: `能力 ${params.plan.capabilityId} 暂不需要平台预取数据。` };
   }
 
-  const researchTime = researchTimeForPlan(params.plan);
   await ensureQuantWorkspace(params.projectPath);
+  const now = new Date();
+  const researchTime = researchTimeForPlan(params.plan) ?? resolveResearchTime({ unit: 'date_range', endDate: new Date(now.getTime() + 8 * 3600000).toISOString().slice(0, 10), asOf: now.toISOString() }, now)!;
+  if (!params.plan.researchTime) {
+    params.plan.researchTime = researchTime;
+    await writeJson(path.join(params.projectPath, '.data-agent', 'finance-run-plan.json'), params.plan);
+  }
   const runId = params.plan.runId;
   const rawFiles: string[] = [];
   let symbols = inferPlannedSymbols(params.plan);

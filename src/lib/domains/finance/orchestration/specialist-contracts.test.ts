@@ -35,7 +35,7 @@ describe('multi-Agent specialist contracts', () => {
   it('gives every role an exact bounded output template', () => {
     const instruction = specialistResultInstruction('fundamental_research');
 
-    expect(instruction).toContain('"id": "claim-1"');
+    expect(instruction).toContain('"id": "fundamental_research-claim-1"');
     expect(instruction).toContain('"evidenceIds"');
     expect(instruction).toContain('"summary"');
     expect(instruction).toContain('RFC 3339');
@@ -48,6 +48,8 @@ describe('multi-Agent specialist contracts', () => {
     expect(instruction).toContain(
       'lookahead_bias, survivorship_bias, data_gap, unsupported_claim, concentration, model_uncertainty',
     );
+    expect(instruction).not.toContain('"targetClaimId"');
+    expect(specialistResultInstruction('risk_crosscheck')).toContain('referenceCatalog');
   });
 
   it('normalizes noncanonical risk labels without weakening the remaining contract', () => {

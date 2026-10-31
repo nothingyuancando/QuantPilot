@@ -15,7 +15,7 @@ const temporary: string[] = [];
 const id = 'image-extraction';
 const actor = 'test-editor';
 async function fixture() {
-  const parent = await fs.mkdtemp(path.join(os.tmpdir(), 'skill-lifecycle-'));
+  const parent = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'skill-lifecycle-')));
   temporary.push(parent);
   const root = await stageSkillCatalog(parent, repository);
   const workspace = path.join(parent, 'workspace');

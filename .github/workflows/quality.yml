@@ -72,6 +72,9 @@ jobs:
       - name: Benchmark coverage
         run: npm run check:benchmark-coverage
 
+      - name: Research business benchmark
+        run: npm run benchmark:research:business
+
       - name: Evaluation dataset and snapshot contracts
         run: npm run check:eval-datasets
 

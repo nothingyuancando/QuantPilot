@@ -7,6 +7,7 @@ const path = require('path');
 const crypto = require('crypto');
 const { spawnSync } = require('child_process');
 const { loadProjectEnvironment } = require('../shared/load-env');
+loadProjectEnvironment();
 const { PrismaClient } = require('@prisma/client');
 const { NextRequest } = require('next/server');
 const jiti = require('jiti')(path.join(process.cwd(), 'scripts/evals/run-quant-benchmarks.js'), {
@@ -40,6 +41,7 @@ const {
   getDefaultModelForCli,
   getModelDefinitionsForCli,
   normalizeModelId,
+  getPiAgentModelDefinition,
 } = jiti('../../src/lib/constants/models.ts');
 const { applyChanges, initializeNextJsProject } = jiti('../../src/lib/services/cli/pi-agent.ts');
 const {
@@ -101,6 +103,8 @@ const SNAPSHOT_MANIFEST_PATH = path.resolve('benchmarks/quantpilot/snapshot-mani
 const QUERY_REWRITE_FIXTURES_PATH = path.resolve('benchmarks/quantpilot/query-rewrite-fixtures.json');
 const PROJECTS_DIR = path.resolve(process.env.PROJECTS_DIR || './data/projects');
 const REPORTS_DIR = path.resolve('tmp/quantpilot-benchmark-reports');
+const RUN_NAMESPACE = crypto.randomUUID().slice(0, 8);
+const benchmarkProjectId = testCase => `benchmark-${testCase.id}-${RUN_NAMESPACE}`;
 const DEFAULT_MODEL = getDefaultModelForCli('pi');
 const QUERY_REWRITE_FIXTURES = require(QUERY_REWRITE_FIXTURES_PATH);
 
@@ -138,9 +142,8 @@ async function replayContractQueryRewrite({ testCase, instruction, phase = 'prim
 }
 
 function modelRuntime(model) {
-  const definition = getModelDefinitionsForCli('pi')
-    .find((candidate) => candidate.id === model);
-  if (!definition) throw new Error(`未注册的 PI Agent 模型：${model || '(empty)'}`);
+  const definition = getPiAgentModelDefinition(model);
+  if (definition.id !== model) throw new Error(`未注册的 PI Agent 模型：${model || '(empty)'}`);
   return { model: definition.id, provider: definition.provider };
 }
 
@@ -318,8 +321,9 @@ function parseArgs(argv) {
   const modelDefinition = getModelDefinitionsForCli('pi').find((definition) =>
     definition.id.toLowerCase() === requestedModel ||
     definition.aliases.some((alias) => alias.toLowerCase() === requestedModel));
-  if (!modelDefinition) throw new Error(`benchmark 收到未注册的 PI Agent 模型：${model || '(empty)'}`);
-  model = modelDefinition.id;
+  const resolvedModel = modelDefinition || getPiAgentModelDefinition(requestedModel);
+  if (!modelDefinition && resolvedModel.id !== requestedModel) throw new Error(`benchmark 收到未注册的 PI Agent 模型：${model || '(empty)'}`);
+  model = resolvedModel.id;
   if (!Number.isSafeInteger(repeat) || repeat < 1 || repeat > 5) {
     throw new Error(`--repeat 必须是 1 到 5 的整数，收到：${repeat}`);
   }
@@ -863,6 +867,30 @@ async function inspectArtifacts({ projectPath, testCase, prefetch }) {
 
   const rawFiles = new Set((prefetch.rawFiles || []).map((filePath) => path.basename(filePath)));
   for (const expectedRaw of testCase.expectedRawFiles || []) {
+    if (runPlan.researchTime && expectedRaw === 'batch-quotes.json') {
+      const batchFile = (prefetch.rawFiles || []).find(file => path.basename(file) === expectedRaw);
+      const batch = batchFile ? await readArtifact(batchFile) : null;
+      assertCondition(!batchFile || (batch?.status === 'not_requested' && batch.quotes?.length === 0),
+        '冻结研究不得混入最新批量行情；空候选可保留未执行凭据。', failures);
+      continue;
+    }
+    if (runPlan.researchTime && expectedRaw === 'announcements.json') {
+      const dataset = (quality.datasets || []).find(item => item.id === 'announcements' || item.id?.endsWith('_announcements'));
+      assertCondition(dataset?.status === 'warning' && dataset.row_count === 0,
+        '历史公告不可用时应保留空数据及质量警告。', failures);
+      continue;
+    }
+    if (runPlan.researchTime && expectedRaw === 'kline-daily-qfq.json') {
+      assertCondition(rawFiles.has('kline-daily-none.json'), '冻结研究应使用未复权日线。', failures);
+      for (const file of prefetch.rawFiles || []) {
+        if (path.basename(file) !== 'kline-daily-none.json') continue;
+        const payload = await readArtifact(file);
+        assertCondition(payload?.adjustment === 'none' && payload.bars?.length > 0
+          && payload.bars.every(bar => bar.date <= runPlan.researchTime.endDate),
+        '历史日线不得越过研究结束日期或使用前复权。', failures);
+      }
+      continue;
+    }
     if (expectedRaw === 'backtest-ma-crossover.json') {
       failures.push(...await inspectBacktestArtifact({
         backtest: finalData.backtest,
@@ -976,7 +1004,7 @@ async function inspectArtifacts({ projectPath, testCase, prefetch }) {
 
 async function runClarificationCase(testCase) {
   const startedAt = Date.now();
-  const projectId = `benchmark-${testCase.id}`;
+  const projectId = benchmarkProjectId(testCase);
   const projectPath = path.join(PROJECTS_DIR, projectId);
   const requestId = `${projectId}-run`;
   const failures = [];
@@ -1047,7 +1075,7 @@ async function runClarificationCase(testCase) {
 
 async function runClarificationContinuationCase(testCase) {
   const startedAt = Date.now();
-  const projectId = `benchmark-${testCase.id}`;
+  const projectId = benchmarkProjectId(testCase);
   const projectPath = path.join(PROJECTS_DIR, projectId);
   const requestId = `${projectId}-run`;
   const followupRequestId = `${projectId}-followup`;
@@ -1233,7 +1261,7 @@ async function runClarificationContinuationCase(testCase) {
 
 function runRuntimeRegistryCase(testCase) {
   const startedAt = Date.now();
-  const projectId = `benchmark-${testCase.id}`;
+  const projectId = benchmarkProjectId(testCase);
   const projectPath = path.join(PROJECTS_DIR, projectId);
   const failures = [];
   const registeredModels = getModelDefinitionsForCli('pi');
@@ -1270,7 +1298,7 @@ function runRuntimeRegistryCase(testCase) {
 
 function runRendererCapabilityContractCase(testCase) {
   const startedAt = Date.now();
-  const projectId = `benchmark-${testCase.id}`;
+  const projectId = benchmarkProjectId(testCase);
   const projectPath = path.join(PROJECTS_DIR, projectId);
   const failures = [];
   const actualMatrix = __dashboardSpecTesting.capabilityMatrix.map((capability) => ({
@@ -1343,7 +1371,7 @@ function runRendererCapabilityContractCase(testCase) {
 
 async function runRepairPlanCase(testCase) {
   const startedAt = Date.now();
-  const projectId = `benchmark-${testCase.id}`;
+  const projectId = benchmarkProjectId(testCase);
   const projectPath = path.join(PROJECTS_DIR, projectId);
   const failures = [];
   const report = {
@@ -1405,7 +1433,7 @@ async function runRepairPlanCase(testCase) {
 
 async function runSourceDegradationCase(testCase) {
   const startedAt = Date.now();
-  const projectId = `benchmark-${testCase.id}`;
+  const projectId = benchmarkProjectId(testCase);
   const projectPath = path.join(PROJECTS_DIR, projectId);
   const requestId = `${projectId}-run`;
   const failures = [];
@@ -1887,18 +1915,21 @@ function toolExecutionSummary(executions) {
 
 function expectedExecutionLaneFailures(testCase, execution, expectedRuntime) {
   if (!testCase.expectedExecutionLane) return [];
-  const rootRun = execution?.runs?.find((run) => run.requestId === execution.requestId);
+  const rootRun = execution?.runs?.find((run) => run.id === execution.acceptedSourceRunId)
+    ?? execution?.runs?.find((run) => run.requestId === execution.requestId &&
+      !run.id.startsWith('pi_specialist_'));
   const rootToolNames = rootRun?.tools?.succeededToolNames || [];
   if (testCase.expectedExecutionLane === 'deterministic_standard') {
-    return execution?.provider === 'pi-agent-trusted-renderer' &&
-      execution?.model === 'pi-agent-deterministic-renderer-v1' &&
-      execution?.turns === 2 &&
-      execution?.usage?.totalTokens === 0 &&
-      execution?.usage?.inputTokens === 0 &&
-      execution?.usage?.outputTokens === 0 &&
-      execution?.usage?.cachedInputTokens === 0 &&
-      execution?.usage?.cacheMissInputTokens === 0 &&
-      execution?.usage?.reasoningTokens === 0 &&
+    // The accepted writer owns the rendering lane. Specialist costs remain
+    // included in execution.usage, including for a deterministic writer.
+    return rootRun?.provider === 'pi-agent-trusted-renderer' &&
+      rootRun?.model === 'pi-agent-deterministic-renderer-v1' &&
+      rootRun?.usage?.totalTokens === 0 &&
+      rootRun?.usage?.inputTokens === 0 &&
+      rootRun?.usage?.outputTokens === 0 &&
+      rootRun?.usage?.cachedInputTokens === 0 &&
+      rootRun?.usage?.cacheMissInputTokens === 0 &&
+      rootRun?.usage?.reasoningTokens === 0 &&
       rootRun?.turns === 2 &&
       rootRun?.tools?.unexpectedFailureCount === 0 &&
       rootToolNames.includes('apply_dashboard_spec') &&
@@ -2063,7 +2094,7 @@ async function collectLiveAgentExecution({ projectId, requestId, mission }) {
 
 async function runLiveProductE2eCase(testCase, options) {
   const startedAt = Date.now();
-  const projectId = `benchmark-${testCase.id}`;
+  const projectId = benchmarkProjectId(testCase);
   const projectPath = path.join(PROJECTS_DIR, projectId);
   const requestId = `${projectId}-run`;
   const expectedRuntime = modelRuntime(options.model);
@@ -2092,7 +2123,9 @@ async function runLiveProductE2eCase(testCase, options) {
     },
   ), { params: Promise.resolve({ project_id: projectId }) });
   const actResult = await response.json();
-  if (!response.ok || actResult?.success !== true || !actResult?.missionId) {
+  const queued = response.status === 202 && actResult?.status === 'queued'
+    && actResult?.requestId === requestId;
+  if (!response.ok || actResult?.success !== true || (!actResult?.missionId && !queued)) {
     throw new Error(
       `正式 /act 链路启动失败（HTTP ${response.status}）：${JSON.stringify(actResult)}`,
     );
@@ -2202,7 +2235,7 @@ async function runCase(testCase, options) {
   }
 
   const startedAt = Date.now();
-  const projectId = `benchmark-${testCase.id}`;
+  const projectId = benchmarkProjectId(testCase);
   const projectPath = path.join(PROJECTS_DIR, projectId);
   const requestId = `${projectId}-run`;
   const agentExecution = {
@@ -2503,7 +2536,7 @@ async function runBenchmarkCase(testCase, options) {
     result = await runCase(testCase, options);
   } catch (error) {
     const expectedRuntime = modelRuntime(options.model);
-    const projectId = `benchmark-${testCase.id}`;
+    const projectId = benchmarkProjectId(testCase);
     const projectPath = path.join(PROJECTS_DIR, projectId);
     const parentRequestId = `${projectId}-run`;
     const failedState = await failBenchmarkGenerationRun({
@@ -2512,6 +2545,16 @@ async function runBenchmarkCase(testCase, options) {
       parentRequestId,
       error,
     }).catch(() => null);
+    // Failed acceptance is still a real, billable execution. Keep its trace
+    // without claiming that the Mission was accepted or that the case passed.
+    const failedMission = ['e2e', 'product-control'].includes(options.mode)
+      ? await prisma.agentMission.findUnique({
+        where: { requestId: parentRequestId }, include: { acceptedReceipt: true },
+      }).catch(() => null)
+      : null;
+    const failedExecution = failedMission ? await collectLiveAgentExecution({
+      projectId, requestId: parentRequestId, mission: failedMission,
+    }).catch(() => null) : null;
     result = {
       id: testCase.id,
       name: testCase.name,
@@ -2530,8 +2573,8 @@ async function runBenchmarkCase(testCase, options) {
       requestId: parentRequestId,
       repairAttempts: failedState?.repairAttemptCount ?? 0,
       platformRepairCount: 0,
-      agentExecuted: false,
-      agentExecution: {
+      agentExecuted: failedExecution?.executed === true,
+      agentExecution: failedExecution ?? {
         executed: false,
         provider: options.mode === 'e2e' ? expectedRuntime.provider : null,
         model: options.mode === 'e2e' ? expectedRuntime.model : null,
@@ -2629,6 +2672,16 @@ async function main() {
     !/^report-\d{1,50}$/.test(workerReportId || '') || !queueId || !leaseToken
   )) throw new Error('Invalid evaluation Worker report identity.');
   const args = parseArgs(process.argv.slice(2));
+  const requestedOrchestration = process.env.QUANTPILOT_EVAL_ORCHESTRATION_MODE;
+  if (requestedOrchestration && !['single_agent', 'multi_agent'].includes(requestedOrchestration)) {
+    throw new Error('Invalid QUANTPILOT_EVAL_ORCHESTRATION_MODE.');
+  }
+  const orchestrationMode = requestedOrchestration || (
+    ['1', 'true', 'yes', 'on', 'enabled'].includes(
+      process.env.QUANTPILOT_MULTI_AGENT_ENABLED?.trim().toLowerCase(),
+    ) ? 'multi_agent' : 'single_agent'
+  );
+  process.env.QUANTPILOT_MULTI_AGENT_ENABLED = orchestrationMode === 'multi_agent' ? '1' : '0';
   const benchmarkStartedAt = new Date().toISOString();
   const allCases = await readJson(args.casesFile);
   if (!Array.isArray(allCases)) throw new Error('评测数据集必须是 case 数组');
@@ -2759,9 +2812,7 @@ async function main() {
       },
       runtime: {
         cli: args.cli,
-        orchestrationMode: process.env.QUANTPILOT_EVAL_ORCHESTRATION_MODE === 'multi_agent'
-          ? 'multi_agent'
-          : 'single_agent',
+        orchestrationMode,
         provider: args.mode === 'e2e' ? expectedRuntime.provider : null,
         model: args.mode === 'e2e' ? args.model : null,
         configuredModel: args.model,
@@ -2796,6 +2847,11 @@ async function main() {
         ),
       },
       provenance: {
+        // Controlled comparison requires externally captured/replayed full inputs.
+        // Oracle fixtures alone are deliberately insufficient.
+        experimentId: process.env.QUANTPILOT_EVAL_EXPERIMENT_ID || null,
+        frozenInputsSha256: process.env.QUANTPILOT_EVAL_FROZEN_INPUTS_SHA256 || null,
+        toolConfigSha256: process.env.QUANTPILOT_EVAL_TOOL_CONFIG_SHA256 || null,
         gitCommit: PI_AGENT_BUILD_IDENTITY.gitRevision,
         gitRevision: PI_AGENT_BUILD_IDENTITY.gitRevision,
         buildRevision: PI_AGENT_BUILD_IDENTITY.buildRevision,

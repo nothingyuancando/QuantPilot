@@ -1,6 +1,10 @@
 import type { QuantEvalMultiAgentComparison, QuantEvalRun } from './types';
 
-function caseSelectionKey(run: QuantEvalRun): string {
+function caseSelectionKey(run: QuantEvalRun): string | null {
+  const provenance = run.metadata.provenance;
+  if (!provenance?.experimentId || !provenance.casesSha256 || !provenance.promptsSha256
+    || !provenance.snapshotManifestSha256 || !provenance.frozenInputsSha256 || !provenance.toolConfigSha256
+    || !run.metadata.evaluator.version || !run.metadata.evaluator.rubricVersion || !run.metadata.skillLockSnapshot) return null;
   const selected = run.metadata.selection.selectedCases.length > 0
     ? [...run.metadata.selection.selectedCases].sort()
     : run.results.map((result) => result.id).sort();
@@ -9,6 +13,20 @@ function caseSelectionKey(run: QuantEvalRun): string {
     evaluator: run.metadata.evaluator.id,
     model: run.metadata.runtime.configuredModel ?? run.metadata.runtime.model,
     suite: run.metadata.suite?.mode ?? 'contract',
+    experimentId: provenance.experimentId,
+    casesSha256: provenance.casesSha256,
+    promptsSha256: provenance.promptsSha256,
+    snapshotManifestSha256: provenance.snapshotManifestSha256,
+    frozenInputsSha256: provenance.frozenInputsSha256,
+    toolConfigSha256: provenance.toolConfigSha256,
+    evaluatorVersion: run.metadata.evaluator.version,
+    rubricVersion: run.metadata.evaluator.rubricVersion,
+    reasoningEffort: run.metadata.runtime.reasoningEffort,
+    frameworkVersion: run.metadata.runtime.frameworkVersion,
+    buildRevision: run.metadata.runtime.buildRevision,
+    repeat: run.metadata.selection.repeat,
+    snapshots: [...run.metadata.dataSnapshots?.selected ?? []].sort((a, b) => a.caseId.localeCompare(b.caseId)),
+    skills: Object.entries(run.metadata.skillLockSnapshot.skills).sort(([a], [b]) => a.localeCompare(b)),
   });
 }
 
@@ -26,9 +44,10 @@ export function buildMultiAgentComparison(
   for (const run of runs) {
     if (run.metadata.suite?.mode !== 'e2e') continue;
     const key = caseSelectionKey(run);
+    if (!key) continue;
     const group = groups.get(key) ?? {};
     if (run.metadata.runtime.orchestrationMode === 'multi_agent') group.multi ??= run;
-    else group.single ??= run;
+    else if (run.metadata.runtime.orchestrationMode === 'single_agent') group.single ??= run;
     groups.set(key, group);
   }
   for (const [comparisonKey, group] of groups) {
@@ -44,7 +63,7 @@ export function buildMultiAgentComparison(
       totalTokenDelta: totalTokens(group.multi) - totalTokens(group.single),
     };
   }
-  const latestSingle = runs.find((run) => run.metadata.runtime.orchestrationMode !== 'multi_agent');
+  const latestSingle = runs.find((run) => run.metadata.runtime.orchestrationMode === 'single_agent');
   const latestMulti = runs.find((run) => run.metadata.runtime.orchestrationMode === 'multi_agent');
   return {
     available: false,

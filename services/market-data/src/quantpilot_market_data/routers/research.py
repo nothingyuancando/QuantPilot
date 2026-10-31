@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
@@ -196,6 +197,8 @@ def create_research_router(client: ResearchUniverseProvider) -> APIRouter:
         trade_date: date | None = None,
         mode: ScreenerMode = "short_term",
         limit: int = Query(default=20, ge=1, le=100),
+        symbols: Annotated[list[str] | None, Query()] = None,
+        markets: Annotated[list[str] | None, Query()] = None,
     ) -> AShareScreenerResponse:
         try:
             return await get_a_share_short_term_candidates(
@@ -203,6 +206,8 @@ def create_research_router(client: ResearchUniverseProvider) -> APIRouter:
                 trade_date=trade_date,
                 mode=mode,
                 limit=limit,
+                symbols=symbols,
+                markets=markets,
             )
         except DatabaseError as error:
             raise HTTPException(status_code=503, detail=str(error)) from error

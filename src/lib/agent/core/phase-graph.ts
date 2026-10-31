@@ -146,7 +146,9 @@ export function createPiAgentPhaseGraph(
         maxTurns: 8,
         maxToolCalls: 12,
         maxOutputTokens: 8_000,
-        maxCacheMissInputTokens: 24_000,
+        // Live custom runs with two source edits consumed ~27k uncached
+        // input before submit. Reserve a bounded final submission turn too.
+        maxCacheMissInputTokens: 40_000,
         maxPreparedInputTokens: 24_000,
         maxCumulativePreparedInputTokens: 144_000,
         progressStallTurns: 1,

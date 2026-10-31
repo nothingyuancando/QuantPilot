@@ -90,6 +90,7 @@ export function ResearchSectionHeader({ eyebrow, title, description, action }: {
 }
 
 export function riskLabel(risk: string) {
+  if (risk === "unknown") return "未评估";
   if (risk === "low") return "低风险";
   if (risk === "medium") return "中风险";
   if (risk === "high") return "高风险";

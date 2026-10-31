@@ -178,6 +178,9 @@ function statusEvents() {
 describe('PI Agent terminal ownership', () => {
   it('does not mistake a company name for a visual movement instruction', () => {
     expect(classifyPiAgentPreparedIntent(
+      '生成连续的金融分析工作台，不要卡片式界面，不要圆角卡片网格。',
+    )).toBe('custom');
+    expect(classifyPiAgentPreparedIntent(
       '分析中国移动最近四个报告期的营收、利润、现金流、股息与估值，生成基本面看板。',
     )).toBe('standard');
     expect(classifyPiAgentPreparedIntent(
@@ -193,7 +196,7 @@ describe('PI Agent terminal ownership', () => {
 
   beforeEach(async () => {
     vi.clearAllMocks();
-    workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'pi-agent-terminal-'));
+    workspace = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'pi-agent-terminal-')));
     process.env.DEEPSEEK_API_KEY = 'test-key';
     mocks.getProjectById.mockResolvedValue({ id: 'project-test', repoPath: workspace });
     mocks.getRecentMessages.mockResolvedValue([]);
@@ -764,7 +767,7 @@ describe('PI Agent terminal ownership', () => {
       maxTurns: 8,
       maxTotalToolCalls: 12,
       maxRunInputTokens: 160_000,
-      maxRunCacheMissInputTokens: 24_000,
+      maxRunCacheMissInputTokens: 40_000,
       maxRunPreparedInputTokens: 144_000,
       progressStallTurns: 1,
       preWriteReadOnlyTurnThreshold: 4,

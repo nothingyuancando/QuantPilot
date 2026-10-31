@@ -684,7 +684,7 @@ export function createSemanticEditTool(
         selector: { type: 'string', description: 'Required only for css_rule.' },
         startLine: { type: 'integer', minimum: 1, description: 'Required only for line_range.' },
         endLine: { type: 'integer', minimum: 1, description: 'Required only for line_range.' },
-        replacement: { type: 'string', description: 'Complete replacement declaration/rule/range, or bounded CSS override rules for css_append.' },
+        replacement: { type: 'string', description: `Complete replacement declaration/rule/range. For css_append, append minimal CSS overrides: at most ${DEFAULT_MAX_CSS_APPEND_CHARS} characters and ${DEFAULT_MAX_CSS_APPEND_LINES} lines, including blank lines. Prefer one compact rule per line; do not copy the existing stylesheet.` },
       },
       required: ['path', 'kind', 'beforeSha256', 'replacement'],
       additionalProperties: false,

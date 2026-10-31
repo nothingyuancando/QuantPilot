@@ -75,15 +75,15 @@
       "description": "Create or modify quantitative strategies"
     },
     "research.report.read": {
-      "scope": "account",
+      "scope": "project",
       "description": "Read research reports"
     },
     "research.report.run": {
-      "scope": "account",
+      "scope": "project",
       "description": "Generate research reports"
     },
     "research.report.send": {
-      "scope": "account",
+      "scope": "project",
       "description": "Send or publish research reports"
     },
     "platform.users.manage": {
@@ -190,7 +190,8 @@
       "allow": [
         "project.read",
         "project.source.read",
-        "project.services.read"
+        "project.services.read",
+        "research.report.read"
       ],
       "deny": []
     },
@@ -202,7 +203,9 @@
         "project.source.write",
         "project.services.read",
         "agent.run",
-        "agent.cancel"
+        "agent.cancel",
+        "research.report.read",
+        "research.report.run"
       ],
       "deny": []
     },
@@ -220,7 +223,10 @@
         "project.services.manage",
         "project.deploy",
         "agent.run",
-        "agent.cancel"
+        "agent.cancel",
+        "research.report.read",
+        "research.report.run",
+        "research.report.send"
       ],
       "deny": []
     }

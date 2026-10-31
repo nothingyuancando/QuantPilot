@@ -30,6 +30,7 @@ describe('finance multi-Agent Mission definition', () => {
       executor: 'model_agent',
       workspacePolicy: 'artifact_only',
       dependencies: ['data_prefetch'],
+      budget: { maxOutputTokens: 16_000, maxAttempts: 2, maxToolCalls: 3 },
     });
     expect(byKey.get('technical_analysis')?.concurrency?.group).toBe('finance-research');
     expect(byKey.get('risk_crosscheck')?.dependencies).toEqual([

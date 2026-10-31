@@ -47,19 +47,24 @@ function tokens(value: string): string[] {
 
 function flattenJson(source: string, value: unknown): Array<Omit<FinanceEvidencePassage, 'score'>> {
   const passages: Array<Omit<FinanceEvidencePassage, 'score'>> = [];
-  const visit = (current: unknown, segments: string[], depth: number) => {
+  const visit = (current: unknown, segments: string[], depth: number, recordContext = '') => {
     if (passages.length >= MAX_PASSAGES || depth > MAX_DEPTH) return;
     if (Array.isArray(current)) {
       current.slice(0, MAX_PASSAGES - passages.length).forEach((item, index) => visit(item, [...segments, String(index)], depth + 1));
       return;
     }
     if (current && typeof current === 'object') {
-      Object.entries(current as Record<string, unknown>).forEach(([key, item]) => visit(item, [...segments, key], depth + 1));
+      const entries = Object.entries(current as Record<string, unknown>);
+      // Keep dates, symbols and units beside the numeric value they qualify.
+      // Never combine unrelated rows from an array into one evidence passage.
+      const context = JSON.stringify(Object.fromEntries(entries.filter(([, item]) => item === null || ['string', 'number', 'boolean'].includes(typeof item)))).slice(0, 1400);
+      entries.forEach(([key, item]) => visit(item, [...segments, key], depth + 1, context));
       return;
     }
     if (current === null || ['string', 'number', 'boolean'].includes(typeof current)) {
       const jsonPath = segments.length ? `$.${segments.join('.')}` : '$';
-      const text = `${jsonPath} = ${String(current)}`.slice(0, 2_048);
+      const valueText = `${jsonPath} = ${String(current)}`.slice(0, 600);
+      const text = `${valueText}${recordContext && recordContext !== '{}' ? `; recordContext=${recordContext}` : ''}`.slice(0, 2_048);
       passages.push({
         id: `evidence:${sha256(`${source}\0${text}`).slice(0, 24)}`,
         source,
@@ -91,11 +96,12 @@ function documentPassages(document: FinanceEvidenceDocument) {
 /** Deterministic bounded lexical retrieval over frozen finance artifacts. */
 export function retrieveFinanceEvidence(input: {
   role: PiAgentSpecialistRole;
+  question?: string;
   documents: readonly FinanceEvidenceDocument[];
   limit?: number;
 }): FinanceEvidencePassage[] {
   const passages = input.documents.flatMap(documentPassages).filter((passage) => passage.text.trim());
-  const query = tokens(ROLE_QUERY[input.role]);
+  const query = tokens(`${input.question?.slice(0, 8000) ?? ''} ${ROLE_QUERY[input.role]}`);
   const passageTokens = passages.map((passage) => tokens(`${passage.jsonPath} ${passage.text}`));
   const documentFrequency = new Map<string, number>();
   passageTokens.forEach((items) => items.forEach((token) => documentFrequency.set(token, (documentFrequency.get(token) ?? 0) + 1)));
@@ -112,7 +118,9 @@ export function retrieveFinanceEvidence(input: {
     const qualityBoost = /source|citation|asof|timestamp|period|date|报告期|数据源/iu.test(passage.jsonPath)
       ? 0.35
       : 0;
-    return { ...passage, score: Number((score + qualityBoost).toFixed(6)) };
+    const pathTokens = new Set(tokens(passage.jsonPath));
+    const fieldBoost = query.reduce((total, token) => total + (pathTokens.has(token) ? 2 : 0), 0);
+    return { ...passage, score: Number((score + qualityBoost + fieldBoost).toFixed(6)) };
   });
   return scored
     .sort((left, right) => right.score - left.score || left.id.localeCompare(right.id))

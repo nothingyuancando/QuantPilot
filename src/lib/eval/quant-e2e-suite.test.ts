@@ -206,4 +206,28 @@ describe('PI Agent release E2E suite', () => {
       ]),
     });
   });
+
+  it('attests the zero-token writer while retaining specialist costs', () => {
+    const fixture = validProductControlEvidence();
+    const execution = fixture.evidence.results[0].agentExecution;
+    const writer = execution.runs[0];
+    Object.assign(writer, { tools: execution.tools });
+    const specialist = {
+      ...writer, id: 'pi_specialist_research', status: 'completed',
+      provider: 'deepseek', model: 'deepseek-flash', turns: 2,
+      usage: { ...writer.usage, inputTokens: 10, outputTokens: 2, totalTokens: 12, cacheMissInputTokens: 10 },
+    };
+    execution.runs.unshift(specialist);
+    execution.runIds.unshift(specialist.id);
+    execution.provider = specialist.provider;
+    execution.model = specialist.model;
+    execution.turns = 4;
+    execution.usage = { ...specialist.usage };
+    expect(attestProductControlEvidence(fixture.evidence, fixture)).toEqual({ passed: true, problems: [] });
+
+    execution.usage.totalTokens = 0;
+    expect(attestProductControlEvidence(fixture.evidence, fixture)).toMatchObject({
+      passed: false, problems: expect.arrayContaining([expect.stringContaining('累计模型用量')]),
+    });
+  });
 });

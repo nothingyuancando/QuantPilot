@@ -77,7 +77,7 @@ function renderPlainText(report: ResearchNotificationReportInput) {
     '',
     report.summary,
     '',
-    `评分：${report.score}/100`,
+    `数据可信度：${report.score}/100`,
     `风险：${report.riskLevel}`,
     `建议：${report.recommendation}`,
   ].join('\n');

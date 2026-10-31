@@ -443,18 +443,26 @@ async def screen_a_share_short_term_candidates(
     trade_date: date | None = None,
     mode: ScreenerMode = "short_term",
     limit: int = 20,
+    symbols: list[str] | None = None,
+    markets: list[str] | None = None,
 ) -> AShareScreenerResponse:
+    selected_symbols = sorted({symbol.strip().upper() for symbol in symbols or []})
+    selected_markets = sorted(set(markets or []))
+    # Scope every cache tier; the SQL universe id remains unchanged.
+    cache_universe_id = universe_id if not selected_symbols and not selected_markets else (
+        universe_id + ":scope:" + repr((selected_symbols, selected_markets))
+    )
     safe_limit = max(1, min(limit, 100))
     resolved_trade_date = trade_date
     requested_trade_date_input = trade_date
     trade_date_cache_key = _screener_trade_date_cache_key(
-        universe_id=universe_id,
+        universe_id=cache_universe_id,
         trade_date=trade_date,
     )
     trade_date_cache_hit, cached_trade_date = _screener_trade_date_cache_get(trade_date_cache_key)
     if trade_date_cache_hit and cached_trade_date is not None:
         cache_key = _screener_cache_key(
-            universe_id=universe_id,
+            universe_id=cache_universe_id,
             trade_date=cached_trade_date,
             mode=mode,
             limit=safe_limit,
@@ -488,6 +496,12 @@ async def screen_a_share_short_term_candidates(
             (universe_id,),
         )
         universe_members = [dict(row) for row in await cursor.fetchall()]
+        if selected_symbols:
+            universe_members = [
+                row for row in universe_members if row["symbol"] in selected_symbols
+            ]
+        if selected_markets and "A股" not in selected_markets:
+            universe_members = []  # This screener supports stock members only.
         total_symbols = len(universe_members)
 
         if trade_date_cache_hit:
@@ -596,7 +610,7 @@ async def screen_a_share_short_term_candidates(
             )
 
         cache_key = _screener_cache_key(
-            universe_id=universe_id,
+            universe_id=cache_universe_id,
             trade_date=resolved_trade_date,
             mode=mode,
             limit=safe_limit,
@@ -1049,7 +1063,7 @@ async def screen_a_share_short_term_candidates(
     )
     if response_trade_date is not None and _screener_cached_response_is_usable(response):
         cache_key = _screener_cache_key(
-            universe_id=universe_id,
+            universe_id=cache_universe_id,
             trade_date=response_trade_date,
             mode=mode,
             limit=safe_limit,

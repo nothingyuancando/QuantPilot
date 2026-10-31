@@ -107,7 +107,7 @@ export async function wrapGeneratedProjectCommand(
       return { command, args: [...args] };
     }
     throw new Error(
-      'Generated project execution requires the Linux namespace sandbox. ' +
+      'Generated project execution requires the Linux namespace sandbox or an explicit unsafe override. ' +
       'Set QUANTPILOT_ALLOW_UNSANDBOXED_GENERATED_CODE=1 only in an isolated development machine.',
     );
   }

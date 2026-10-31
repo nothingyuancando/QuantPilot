@@ -51,6 +51,7 @@ describe('PI Agent PhaseGraph', () => {
       budgets: {
         maxTurns: 8,
         maxToolCalls: 12,
+        maxCacheMissInputTokens: 40_000,
         maxPreparedInputTokens: 24_000,
         maxCumulativePreparedInputTokens: 144_000,
         progressStallTurns: 1,

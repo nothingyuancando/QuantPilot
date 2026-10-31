@@ -74,17 +74,22 @@ describe('permission evaluator', () => {
     }))).toMatchObject({ allowed: false, reason: 'PROJECT_CONTEXT_REQUIRED' });
   });
 
-  it('treats shared quant and research capabilities as account scoped', () => {
+  it('treats shared market data capabilities as account scoped', () => {
     for (const action of [
       'quant.data.read',
       'quant.query.rewrite.llm',
       'quant.strategy.run',
-      'research.report.read',
-      'research.report.run',
     ] as const) {
       expect(ACCESS_CONTROL_CATALOG.actions[action].scope).toBe('account');
       expect(evaluatePermission(request(action, { project: undefined })))
         .toMatchObject({ allowed: true, reason: 'GRANTED' });
+    }
+  });
+
+  it('requires project context for research business data', () => {
+    for (const action of ['research.report.read', 'research.report.run', 'research.report.send'] as const) {
+      expect(ACCESS_CONTROL_CATALOG.actions[action].scope).toBe('project');
+      expect(evaluatePermission(request(action, { project: undefined }))).toMatchObject({ allowed: false, reason: 'PROJECT_CONTEXT_REQUIRED' });
     }
   });
 

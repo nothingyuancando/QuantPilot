@@ -16,7 +16,9 @@ function run(input: {
     averageScore: input.score,
     durationMs: input.durationMs,
     metadata: {
-      evaluator: { id: 'agent-review' },
+      evaluator: { id: 'agent-review', version: '1', rubricVersion: '1' },
+      provenance: { experimentId: 'paired-1', casesSha256: 'cases', promptsSha256: 'prompts', snapshotManifestSha256: 'snapshots', frozenInputsSha256: 'inputs', toolConfigSha256: 'tools' },
+      skillLockSnapshot: { schemaVersion: 1, skills: {} },
       runtime: { configuredModel: 'deepseek-chat', orchestrationMode: input.orchestrationMode },
       suite: { mode: 'e2e' },
       selection: { selectedCases: ['case-a'] },

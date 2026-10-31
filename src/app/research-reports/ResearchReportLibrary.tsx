@@ -77,7 +77,7 @@ function ReportCard({ report, onOpen }: { report: ResearchReportSnapshot; onOpen
     <button type="button" onClick={onOpen} className="group flex min-h-[280px] flex-col rounded-xl border border-border/65 bg-card/90 p-5 text-left transition-all hover:-translate-y-0.5 hover:border-primary/35 hover:shadow-[0_18px_42px_-34px_hsl(var(--shadow-color)/0.55)]">
       <div className="flex items-start justify-between gap-4">
         <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary"><FileText className="h-5 w-5" /></span>
-        <div className="text-right"><p className={cn("text-2xl font-black tabular-nums", scoreTone(report.score))}>{report.score}</p><p className="text-[10px] text-muted-foreground">研究评分</p></div>
+        <div className="text-right"><p className={cn("text-2xl font-black tabular-nums", scoreTone(report.score))}>{report.score}</p><p className="text-[10px] text-muted-foreground">数据可信度</p></div>
       </div>
       <div className="mt-4 flex flex-wrap items-center gap-2"><Badge className={cn("hover:bg-inherit", riskClass(report.riskLevel))}>{riskLabel(report.riskLevel)}</Badge><Badge variant="outline" className="text-[10px] text-muted-foreground">{formatResearchTime(report.createdAt)}</Badge></div>
       <h3 className="mt-3 line-clamp-2 text-base font-bold leading-6 text-foreground group-hover:text-primary">{report.title}</h3>

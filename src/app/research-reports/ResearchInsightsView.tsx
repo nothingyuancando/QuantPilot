@@ -54,7 +54,7 @@ export function ResearchInsightsView({ data }: {
       <ResearchSectionHeader eyebrow="RESEARCH INSIGHTS" title="主题洞察与证据地图" description="从最近报告中聚合候选标的、证据可用性、覆盖范围和复核事项，观察反复出现的研究信号。" />
       <section className="grid grid-cols-2 gap-3 xl:grid-cols-4">
         <ResearchMetricCard icon={<Target className="h-4 w-4" />} label="候选标的" value={candidateRanking.length} helper={`${signalCount} 个结构化研究信号`} tone="primary" />
-        <ResearchMetricCard icon={<Gauge className="h-4 w-4" />} label="平均研究评分" value={averageScore ?? "-"} helper={`${data.latestReports.length} 份近期报告`} tone={averageScore == null ? "slate" : averageScore >= 80 ? "emerald" : "amber"} />
+        <ResearchMetricCard icon={<Gauge className="h-4 w-4" />} label="平均数据可信度" value={averageScore ?? "-"} helper={`${data.latestReports.length} 份近期报告`} tone={averageScore == null ? "slate" : averageScore >= 80 ? "emerald" : "amber"} />
         <ResearchMetricCard icon={<Database className="h-4 w-4" />} label="可用证据" value={evidence.length ? `${readyEvidence}/${evidence.length}` : "-"} helper="按最新报告证据快照统计" tone={readyEvidence ? "emerald" : "blue"} />
         <ResearchMetricCard icon={<Layers3 className="h-4 w-4" />} label="股票池覆盖" value={latestCoverage ? `${Math.round(latestCoverage.coverageRatio * 100)}%` : "待采样"} helper={latestCoverage ? `${latestCoverage.readyCount}/${latestCoverage.memberCount} 个成员就绪` : "首次日报会写入覆盖快照"} tone={latestCoverage ? "blue" : "slate"} />
       </section>

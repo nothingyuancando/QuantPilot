@@ -3,6 +3,7 @@ const path = require('path');
 const crypto = require('crypto');
 const { spawnSync } = require('child_process');
 const yaml = require('js-yaml');
+const tar = require('tar');
 
 const root = process.cwd();
 const registryPath = path.join(root, '.pi', 'skills.registry.json');
@@ -282,25 +283,14 @@ function packageSkill(skillId) {
   fs.mkdirSync(packageDir, { recursive: true });
   const outputPath = path.join(packageDir, `${skillId}.tgz`);
   const stagedPath = path.join(packageDir, `.${skillId}.${transactionId}.tgz.tmp`);
-  const result = spawnSync(
-    'tar',
-    [
-      '--sort=name',
-      '--mtime=@0',
-      '--owner=0',
-      '--group=0',
-      '--numeric-owner',
-      '-czf',
-      stagedPath,
-      '-C',
-      skillsDir,
-      skillId,
-    ],
-    { cwd: root, stdio: 'inherit' }
-  );
-  if (result.status !== 0) {
+  try {
+    // Node tar provides the same deterministic metadata on macOS and Linux.
+    tar.create({ sync: true, gzip: true, portable: true, noDirRecurse: true,
+      mtime: new Date(0), cwd: skillsDir, file: stagedPath },
+    listFiles(sourceDir).map((file) => path.relative(skillsDir, file)));
+  } catch (error) {
     fs.rmSync(stagedPath, { force: true });
-    fail(`tar failed for ${skillId}`);
+    fail(`tar failed for ${skillId}: ${error.message}`);
   }
   const packageSha256 = sha256(fs.readFileSync(stagedPath));
   return {

@@ -302,6 +302,9 @@ export interface QuantEvalRun {
       workspaceRetained: boolean;
     };
     provenance?: {
+      experimentId?: string | null;
+      toolConfigSha256?: string | null;
+      frozenInputsSha256?: string | null;
       gitCommit: string | null;
       gitRevision?: string | null;
       buildRevision?: string | null;

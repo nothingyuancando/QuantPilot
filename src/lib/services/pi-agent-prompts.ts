@@ -299,7 +299,7 @@ ${instruction.trim()}`;
     ? `平台预取语义编辑模式：
 - final/evidence 与 run plan 已准备并冻结；权威看板数据是 artifact=final_dashboard（data_file/final/dashboard-data.json），绝不推断 public/data/*.json，也不重复取数或重写数据。
 - 本任务因明确模板外定制或当前 variant 尚无已认证 renderer，由平台关闭 apply_dashboard_spec；从 initial dashboard contract 开始，用最多一次 query_json、每个文件最多一次批量源码锚点查询，再以 query_text_file 返回的 SHA-256 调用 semantic_edit。
-- 保留既有数据绑定、模板和同源 market proxy，只做一次最小连贯编辑。`
+- 保留既有数据绑定、模板和同源 market proxy，只做一次最小连贯编辑。样式调整使用 css_append，只追加必要覆盖规则，不复制原样式；最多 160 行（含空行）、16000 字符，优先每条规则一行。编辑成功后立即 submit_result。`
     : prepared
     ? `平台预取模式：
 - final/evidence 与 run plan 已准备并冻结；权威数据只通过 artifact=final_dashboard 读取，绝不推断 public/data/*.json；只使用 initial dashboard contract 与当前暴露的 typed tools，不重复取数或重写数据。
